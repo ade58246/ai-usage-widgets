@@ -1,0 +1,879 @@
+from __future__ import annotations
+
+import time
+from collections.abc import Iterable
+
+from PySide6.QtCore import QByteArray, QDateTime, QLocale, QPoint, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QFont,
+    QGuiApplication,
+    QKeyEvent,
+    QMouseEvent,
+    QMoveEvent,
+    QShowEvent,
+)
+from PySide6.QtWidgets import (
+    QColorDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QStackedWidget,
+    QSystemTrayIcon,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from codex_usage_widget.autostart import AutostartManager
+from codex_usage_widget.icon_factory import create_meter_icon
+from codex_usage_widget.models import ConnectionState, RateLimitWindowView, UsageSnapshot
+from codex_usage_widget.theme import build_stylesheet, is_dark_theme
+
+MIN_OPACITY_PERCENT = 35
+MAX_OPACITY_PERCENT = 100
+
+
+def format_duration(minutes: int | None) -> str:
+    if minutes is None:
+        return "時間窗未知"
+    if minutes >= 1_440 and minutes % 1_440 == 0:
+        days = minutes // 1_440
+        return f"{days} 天"
+    if minutes >= 60 and minutes % 60 == 0:
+        hours = minutes // 60
+        return f"{hours} 小時"
+    return f"{minutes} 分鐘"
+
+
+def format_countdown(timestamp: int | None, *, now: int | None = None) -> str:
+    if timestamp is None:
+        return "重設時間未知"
+    remaining = max(0, timestamp - (int(time.time()) if now is None else now))
+    if remaining == 0:
+        return "即將重設"
+    days, remainder = divmod(remaining, 86_400)
+    hours, remainder = divmod(remainder, 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    if days:
+        return f"{days} 天 {hours} 小時後重設"
+    if hours:
+        return f"{hours} 小時 {minutes} 分後重設"
+    if minutes:
+        return f"{minutes} 分 {seconds} 秒後重設"
+    return f"{seconds} 秒後重設"
+
+
+def format_absolute_time(timestamp: int | None) -> str:
+    if timestamp is None:
+        return "伺服器未提供重設時間"
+    date_time = QDateTime.fromSecsSinceEpoch(timestamp).toLocalTime()
+    formatted = QLocale.system().toString(date_time, QLocale.FormatType.ShortFormat)
+    return f"本地重設時間：{formatted}"
+
+
+def severity_for(window: RateLimitWindowView) -> tuple[str, str]:
+    if window.reached_type:
+        return "critical", "已達上限"
+    if window.remaining_percent < 20:
+        return "critical", "緊迫"
+    if window.remaining_percent <= 50:
+        return "warning", "注意"
+    return "normal", "正常"
+
+
+def _refresh_style(widget: QWidget) -> None:
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
+
+
+class DraggableHeader(QFrame):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Header")
+        self._drag_offset: QPoint | None = None
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = (
+                event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
+            )
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.window().move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+
+class AppearancePanel(QFrame):
+    appearance_changed = Signal(int, object)
+    close_requested = Signal()
+
+    def __init__(
+        self,
+        opacity_percent: int,
+        important_text_color: str | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("AppearancePanel")
+        self._important_text_color = self._normalize_color(important_text_color)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(9)
+
+        heading = QHBoxLayout()
+        heading.setSpacing(6)
+        title_column = QVBoxLayout()
+        title_column.setSpacing(1)
+        title = QLabel("介面外觀")
+        title.setObjectName("PanelTitle")
+        description = QLabel("調整卡片透明度與重點文字色；變更會立即儲存。")
+        description.setObjectName("Muted")
+        description.setWordWrap(True)
+        title_column.addWidget(title)
+        title_column.addWidget(description)
+        heading.addLayout(title_column, 1)
+        self.done_button = QToolButton()
+        self.done_button.setText("收合")
+        self.done_button.setToolTip("收合介面外觀調整")
+        self.done_button.setAccessibleName("收合介面外觀調整")
+        self.done_button.clicked.connect(self.close_requested.emit)
+        heading.addWidget(self.done_button)
+        layout.addLayout(heading)
+
+        opacity_heading = QHBoxLayout()
+        opacity_label = QLabel("介面透明度")
+        self.opacity_value_label = QLabel()
+        self.opacity_value_label.setObjectName("Metadata")
+        opacity_heading.addWidget(opacity_label)
+        opacity_heading.addStretch(1)
+        opacity_heading.addWidget(self.opacity_value_label)
+        layout.addLayout(opacity_heading)
+
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
+        self.opacity_slider.setValue(
+            max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, opacity_percent))
+        )
+        self.opacity_slider.setSingleStep(5)
+        self.opacity_slider.setPageStep(10)
+        self.opacity_slider.setAccessibleName("介面透明度")
+        self.opacity_slider.setAccessibleDescription(
+            f"可調整為 {MIN_OPACITY_PERCENT}% 到 {MAX_OPACITY_PERCENT}%"
+        )
+        self.opacity_slider.valueChanged.connect(self._opacity_changed)
+        layout.addWidget(self.opacity_slider)
+
+        color_label = QLabel("重點文字顏色")
+        layout.addWidget(color_label)
+        self.color_button = QPushButton()
+        self.color_button.setAccessibleName("選擇重點文字顏色")
+        self.color_button.clicked.connect(self._choose_color)
+        layout.addWidget(self.color_button)
+
+        buttons = QHBoxLayout()
+        self.reset_button = QPushButton("恢復預設")
+        self.reset_button.setToolTip("清除自訂重點文字色並將透明度恢復為 100%")
+        self.reset_button.clicked.connect(self._reset_defaults)
+        buttons.addWidget(self.reset_button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+        self._update_opacity_label()
+        self._update_color_button()
+
+    @property
+    def opacity_percent(self) -> int:
+        return self.opacity_slider.value()
+
+    @property
+    def important_text_color(self) -> str | None:
+        return self._important_text_color
+
+    @staticmethod
+    def _normalize_color(value: str | None) -> str | None:
+        color = QColor(value or "")
+        return color.name() if color.isValid() else None
+
+    def _opacity_changed(self, _value: int) -> None:
+        self._update_opacity_label()
+        self.appearance_changed.emit(self.opacity_percent, self.important_text_color)
+
+    def _update_opacity_label(self) -> None:
+        self.opacity_value_label.setText(f"{self.opacity_percent}%")
+
+    def _choose_color(self) -> None:
+        initial = QColor(self._important_text_color or "#0B63CE")
+        selected = QColorDialog.getColor(initial, self, "選擇 Codex 重點文字顏色")
+        if not selected.isValid():
+            return
+        self._important_text_color = selected.name()
+        self._update_color_button()
+        self.appearance_changed.emit(self.opacity_percent, self.important_text_color)
+
+    def _update_color_button(self) -> None:
+        if self._important_text_color is None:
+            self.color_button.setText("使用預設重點色…")
+            self.color_button.setStyleSheet("")
+            return
+        color = QColor(self._important_text_color)
+        foreground = "#FFFFFF" if color.lightnessF() < 0.48 else "#172033"
+        self.color_button.setText(f"{color.name().upper()}　變更…")
+        self.color_button.setStyleSheet(
+            f"background: {color.name()}; color: {foreground}; font-weight: 600;"
+        )
+
+    def _reset_defaults(self) -> None:
+        self.opacity_slider.blockSignals(True)
+        self.opacity_slider.setValue(MAX_OPACITY_PERCENT)
+        self.opacity_slider.blockSignals(False)
+        self._important_text_color = None
+        self._update_opacity_label()
+        self._update_color_button()
+        self.appearance_changed.emit(self.opacity_percent, self.important_text_color)
+
+    def set_appearance(self, opacity_percent: int, important_text_color: str | None) -> None:
+        self.opacity_slider.blockSignals(True)
+        self.opacity_slider.setValue(
+            max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, opacity_percent))
+        )
+        self.opacity_slider.blockSignals(False)
+        self._important_text_color = self._normalize_color(important_text_color)
+        self._update_opacity_label()
+        self._update_color_button()
+
+
+class UsageRow(QFrame):
+    def __init__(self, window: RateLimitWindowView, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("UsageRow")
+        self.window_data = window
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        heading = QHBoxLayout()
+        title = QLabel(window.label)
+        title.setProperty("important", True)
+        self.title_label = title
+        title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        title.setWordWrap(True)
+        kind = "主要" if window.window_kind == "primary" else "次要"
+        duration = QLabel(f"{kind} · {format_duration(window.window_duration_mins)}")
+        duration.setObjectName("Muted")
+        heading.addWidget(title)
+        heading.addWidget(duration, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(heading)
+
+        value_row = QHBoxLayout()
+        percent = QLabel(f"{window.remaining_percent}% 剩餘")
+        percent_font = percent.font()
+        percent_font.setPointSizeF(max(15.0, percent_font.pointSizeF() * 1.25))
+        percent_font.setWeight(QFont.Weight.DemiBold)
+        percent.setFont(percent_font)
+        percent.setProperty("important", True)
+        self.percent_label = percent
+        severity, severity_label = severity_for(window)
+        percent.setProperty("severity", severity)
+        badge = QLabel(f"● {severity_label}")
+        badge.setProperty("severity", severity)
+        value_row.addWidget(percent)
+        value_row.addStretch(1)
+        value_row.addWidget(badge)
+        layout.addLayout(value_row)
+
+        progress = QProgressBar()
+        progress.setObjectName("UsageProgress")
+        progress.setRange(0, 100)
+        progress.setValue(window.remaining_percent)
+        progress.setTextVisible(False)
+        progress.setProperty("severity", severity)
+        progress.setProperty("important", True)
+        self.progress_bar = progress
+        progress.setAccessibleName(f"{window.label} 剩餘用量")
+        progress.setAccessibleDescription(f"剩餘 {window.remaining_percent}%，狀態{severity_label}")
+        layout.addWidget(progress)
+
+        self.reset_label = QLabel()
+        self.reset_label.setObjectName("ResetLabel")
+        self.reset_label.setProperty("important", True)
+        self.reset_label.setWordWrap(True)
+        layout.addWidget(self.reset_label)
+        self.update_countdown()
+
+    def update_countdown(self) -> None:
+        timestamp = self.window_data.resets_at
+        self.reset_label.setText(format_countdown(timestamp))
+        self.reset_label.setToolTip(format_absolute_time(timestamp))
+
+
+class FloatingUsageWidget(QWidget):
+    refresh_requested = Signal()
+    login_requested = Signal()
+    exit_requested = Signal()
+
+    def __init__(
+        self,
+        settings: QSettings,
+        autostart: AutostartManager,
+        *,
+        enable_tray: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.settings = settings
+        self.autostart = autostart
+        self._snapshot: UsageSnapshot | None = None
+        self._usage_rows: list[UsageRow] = []
+        self._quitting = False
+        self._position_initialized = False
+        self._opacity_percent = self._load_opacity_setting()
+        self._important_text_color = self._load_important_text_color_setting()
+
+        self.setObjectName("FloatingUsageWidget")
+        self.setWindowTitle("Codex 剩餘用量")
+        self.setWindowIcon(create_meter_icon())
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setMinimumWidth(320)
+        self.setMaximumWidth(420)
+        self.resize(360, 300)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        self.card = QFrame()
+        self.card.setObjectName("Card")
+        outer.addWidget(self.card)
+
+        self.card_layout = QVBoxLayout(self.card)
+        self.card_layout.setContentsMargins(14, 12, 14, 14)
+        self.card_layout.setSpacing(10)
+
+        header = DraggableHeader()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        title_column = QVBoxLayout()
+        title_column.setSpacing(1)
+        title = QLabel("Codex 剩餘用量")
+        title.setObjectName("Title")
+        self.account_label = QLabel("正在連線…")
+        self.account_label.setObjectName("Muted")
+        self.account_label.setWordWrap(True)
+        title_column.addWidget(title)
+        title_column.addWidget(self.account_label)
+        header_layout.addLayout(title_column, 1)
+
+        self.appearance_button = QToolButton()
+        self.appearance_button.setText("⚙")
+        self.appearance_button.setToolTip("在卡片中調整透明度與重點文字顏色")
+        self.appearance_button.setAccessibleName("顯示介面外觀調整")
+        self.appearance_button.setCheckable(True)
+        self.appearance_button.clicked.connect(self._set_appearance_panel_visible)
+        header_layout.addWidget(self.appearance_button)
+
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("↻")
+        self.refresh_button.setToolTip("立即更新")
+        self.refresh_button.setAccessibleName("立即更新用量")
+        self.refresh_button.clicked.connect(self.refresh_requested.emit)
+        header_layout.addWidget(self.refresh_button)
+
+        self.close_button = QToolButton()
+        self.close_button.setText("×")
+        self.close_button.setToolTip("縮到系統匣")
+        self.close_button.setAccessibleName("縮到系統匣")
+        self.close_button.clicked.connect(self.close)
+        header_layout.addWidget(self.close_button)
+        self.card_layout.addWidget(header)
+
+        self.appearance_panel = AppearancePanel(
+            self._opacity_percent,
+            self._important_text_color,
+        )
+        self.appearance_panel.appearance_changed.connect(self._apply_inline_appearance)
+        self.appearance_panel.close_requested.connect(
+            lambda: self._set_appearance_panel_visible(False)
+        )
+        self.appearance_panel.hide()
+        self.card_layout.addWidget(self.appearance_panel)
+
+        self.status_label = QLabel("● 啟動中")
+        self.status_label.setObjectName("StatusLabel")
+        self.card_layout.addWidget(self.status_label)
+
+        self.error_banner = QLabel()
+        self.error_banner.setObjectName("ErrorBanner")
+        self.error_banner.setWordWrap(True)
+        self.error_banner.hide()
+        self.card_layout.addWidget(self.error_banner)
+
+        self.stack = QStackedWidget()
+        self.card_layout.addWidget(self.stack, 1)
+
+        message_page = QWidget()
+        message_layout = QVBoxLayout(message_page)
+        message_layout.setContentsMargins(4, 18, 4, 18)
+        message_layout.setSpacing(12)
+        self.message_label = QLabel("正在連線到 Codex app-server…")
+        self.message_label.setObjectName("Muted")
+        self.message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.message_label.setWordWrap(True)
+        message_layout.addWidget(self.message_label)
+        self.login_button = QPushButton("使用 ChatGPT 登入")
+        self.login_button.setObjectName("PrimaryButton")
+        self.login_button.setAccessibleName("使用 ChatGPT 登入")
+        self.login_button.clicked.connect(self.login_requested.emit)
+        self.login_button.hide()
+        message_layout.addWidget(self.login_button)
+        message_layout.addStretch(1)
+        self.stack.addWidget(message_page)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.content = QWidget()
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(8)
+        self.scroll.setWidget(self.content)
+        self.stack.addWidget(self.scroll)
+
+        self.updated_label = QLabel("尚未取得資料")
+        self.updated_label.setObjectName("Metadata")
+        self.updated_label.setWordWrap(True)
+        self.card_layout.addWidget(self.updated_label)
+
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(1_000)
+        self._countdown_timer.timeout.connect(self._update_countdowns)
+        self._countdown_timer.start()
+
+        self._save_position_timer = QTimer(self)
+        self._save_position_timer.setSingleShot(True)
+        self._save_position_timer.setInterval(250)
+        self._save_position_timer.timeout.connect(self._save_geometry)
+
+        self.tray_icon: QSystemTrayIcon | None = None
+        self.autostart_action: QAction | None = None
+        tray_available = enable_tray and QSystemTrayIcon.isSystemTrayAvailable()
+        if tray_available:
+            self._create_tray()
+
+        self._apply_theme()
+        hints = QGuiApplication.styleHints()
+        hints.colorSchemeChanged.connect(lambda _scheme: self._apply_theme())
+        self.set_connection_state(ConnectionState.STARTING)
+
+    @property
+    def tray_available(self) -> bool:
+        return bool(self.tray_icon and self.tray_icon.isVisible())
+
+    def show_or_raise(self) -> None:
+        self.show()
+        self._clamp_to_visible_screen()
+        self.raise_()
+        self.activateWindow()
+
+    def prepare_quit(self) -> None:
+        self._quitting = True
+        self._save_geometry()
+        if self.tray_icon:
+            self.tray_icon.hide()
+
+    def set_connection_state(self, state: ConnectionState) -> None:
+        labels = {
+            ConnectionState.STOPPED: "○ 已停止",
+            ConnectionState.STARTING: "◌ 正在啟動 Codex",
+            ConnectionState.HANDSHAKING: "◌ 正在初始化",
+            ConnectionState.CHECKING_ACCOUNT: "◌ 正在檢查帳號",
+            ConnectionState.AUTH_REQUIRED: "○ 需要登入",
+            ConnectionState.AUTHENTICATING: "◌ 等候瀏覽器登入",
+            ConnectionState.READY: "● 已連線",
+            ConnectionState.RECONNECTING: "↻ 正在重新連線",
+            ConnectionState.MISSING_CLI: "⚠ 找不到 Codex CLI",
+            ConnectionState.OUTDATED_CLI: "⚠ Codex CLI 過舊",
+            ConnectionState.ERROR: "⚠ 連線異常",
+        }
+        self.status_label.setText(labels[state])
+        self.login_button.setVisible(state == ConnectionState.AUTH_REQUIRED)
+        if state == ConnectionState.AUTH_REQUIRED:
+            self.message_label.setText(
+                "登入 ChatGPT 後，小工具會透過 Codex app-server 讀取目前帳號的用量。"
+            )
+            self.stack.setCurrentIndex(0)
+        elif state in {ConnectionState.MISSING_CLI, ConnectionState.OUTDATED_CLI}:
+            self.stack.setCurrentIndex(0)
+        elif state in {
+            ConnectionState.STARTING,
+            ConnectionState.HANDSHAKING,
+            ConnectionState.CHECKING_ACCOUNT,
+        }:
+            if self._snapshot is None:
+                self.message_label.setText("正在連線到 Codex app-server…")
+                self.stack.setCurrentIndex(0)
+        elif state == ConnectionState.READY and self._snapshot is not None:
+            self.stack.setCurrentIndex(1)
+        self.refresh_button.setEnabled(state in {ConnectionState.READY, ConnectionState.ERROR})
+
+    def set_refreshing(self, refreshing: bool) -> None:
+        self.refresh_button.setText("…" if refreshing else "↻")
+        self.refresh_button.setEnabled(not refreshing)
+        if refreshing and self._snapshot is not None:
+            self.status_label.setText("◌ 更新中")
+
+    def set_account(self, account: object) -> None:
+        if not isinstance(account, dict):
+            self.account_label.setText("尚未登入 ChatGPT")
+            return
+        email = account.get("email")
+        plan = account.get("planType")
+        parts = [part for part in (email, plan) if isinstance(part, str) and part]
+        self.account_label.setText(" · ".join(parts) if parts else "ChatGPT 帳號")
+
+    def set_snapshot(self, snapshot: UsageSnapshot) -> None:
+        self._snapshot = snapshot
+        self.error_banner.hide()
+        self._clear_layout(self.content_layout)
+        self._usage_rows.clear()
+
+        if snapshot.windows:
+            for window in snapshot.windows:
+                row = UsageRow(window)
+                self.content_layout.addWidget(row)
+                self._usage_rows.append(row)
+        else:
+            empty = QLabel("伺服器沒有回傳可顯示的用量時間窗。")
+            empty.setObjectName("Muted")
+            empty.setWordWrap(True)
+            self.content_layout.addWidget(empty)
+
+        metadata = self._metadata_lines(snapshot)
+        if metadata:
+            metadata_card = QFrame()
+            metadata_card.setObjectName("MetadataCard")
+            metadata_layout = QVBoxLayout(metadata_card)
+            metadata_layout.setContentsMargins(12, 10, 12, 10)
+            metadata_layout.setSpacing(4)
+            for line in metadata:
+                label = QLabel(line)
+                label.setObjectName("Metadata")
+                label.setWordWrap(True)
+                metadata_layout.addWidget(label)
+            self.content_layout.addWidget(metadata_card)
+
+        self.content_layout.addStretch(1)
+        local_time = snapshot.fetched_at.astimezone().strftime("%H:%M:%S")
+        stale_text = " · 資料可能已過期" if snapshot.stale else ""
+        self.updated_label.setText(f"最後更新：{local_time}{stale_text}")
+        self.stack.setCurrentIndex(1)
+        self._update_tray_tooltip()
+        QTimer.singleShot(0, self._fit_to_screen)
+
+    def set_error(self, message: str) -> None:
+        if self._snapshot is not None and not self._snapshot.stale:
+            self.set_snapshot(self._snapshot.as_stale())
+        self.error_banner.setText(f"⚠ {message}")
+        self.error_banner.show()
+        if self._snapshot is None:
+            self.message_label.setText(message)
+            self.stack.setCurrentIndex(0)
+        QTimer.singleShot(0, self._fit_to_screen)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            if self.appearance_panel.isVisible():
+                self._set_appearance_panel_visible(False)
+                event.accept()
+                return
+            if self.tray_available:
+                self.hide()
+            else:
+                self.exit_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_geometry()
+        if not self._quitting and self.tray_available:
+            self.hide()
+            event.ignore()
+            return
+        if not self._quitting:
+            self.exit_requested.emit()
+        event.accept()
+
+    def moveEvent(self, event: QMoveEvent) -> None:
+        if self._position_initialized:
+            self._save_position_timer.start()
+        super().moveEvent(event)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if not self._position_initialized:
+            self._restore_or_position()
+            self._position_initialized = True
+        self._clamp_to_visible_screen()
+
+    def _create_tray(self) -> None:
+        self.tray_icon = QSystemTrayIcon(self.windowIcon(), self)
+        menu = QMenu()
+        show_action = QAction("顯示／隱藏", menu)
+        show_action.triggered.connect(self._toggle_visibility)
+        menu.addAction(show_action)
+        refresh_action = QAction("立即更新", menu)
+        refresh_action.triggered.connect(self.refresh_requested.emit)
+        menu.addAction(refresh_action)
+        appearance_action = QAction("顯示外觀調整", menu)
+        appearance_action.triggered.connect(self._show_appearance_panel)
+        menu.addAction(appearance_action)
+        menu.addSeparator()
+        self.autostart_action = QAction("登入 Windows 後自動啟動", menu)
+        self.autostart_action.setCheckable(True)
+        self.autostart_action.setEnabled(self.autostart.supported)
+        if not self.autostart.supported:
+            self.autostart_action.setText("登入 Windows 後自動啟動（打包版）")
+        else:
+            self.autostart.repair_if_enabled()
+            self.autostart_action.setChecked(self.autostart.is_enabled())
+        self.autostart_action.toggled.connect(self._set_autostart)
+        menu.addAction(self.autostart_action)
+        menu.addSeparator()
+        exit_action = QAction("完全退出", menu)
+        exit_action.triggered.connect(self.exit_requested.emit)
+        menu.addAction(exit_action)
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.setToolTip("Codex 剩餘用量")
+        self.tray_icon.activated.connect(self._tray_activated)
+        self.tray_icon.show()
+
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in {
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        }:
+            self._toggle_visibility()
+
+    def _toggle_visibility(self) -> None:
+        if self.isVisible():
+            self.hide()
+            self._save_geometry()
+        else:
+            self.show_or_raise()
+
+    def _set_autostart(self, enabled: bool) -> None:
+        if not self.autostart.supported:
+            return
+        try:
+            self.autostart.set_enabled(enabled)
+        except (OSError, RuntimeError) as exc:
+            if self.autostart_action:
+                self.autostart_action.blockSignals(True)
+                self.autostart_action.setChecked(not enabled)
+                self.autostart_action.blockSignals(False)
+            self.set_error(f"無法變更自動啟動設定：{exc}")
+
+    def _load_opacity_setting(self) -> int:
+        value = self.settings.value("appearance/opacity_percent", MAX_OPACITY_PERCENT)
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = MAX_OPACITY_PERCENT
+        return max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, parsed))
+
+    def _load_important_text_color_setting(self) -> str | None:
+        value = self.settings.value("appearance/important_text_color", "")
+        color = QColor(str(value) if value is not None else "")
+        if not color.isValid():
+            legacy_value = self.settings.value("appearance/background_color", "")
+            color = QColor(str(legacy_value) if legacy_value is not None else "")
+            if color.isValid():
+                self.settings.setValue("appearance/important_text_color", color.name())
+        if self.settings.contains("appearance/background_color"):
+            self.settings.remove("appearance/background_color")
+            self.settings.sync()
+        return color.name() if color.isValid() else None
+
+    def _show_appearance_panel(self) -> None:
+        self.show_or_raise()
+        self._set_appearance_panel_visible(True)
+
+    def _set_appearance_panel_visible(self, visible: bool) -> None:
+        self.appearance_button.setChecked(visible)
+        self.appearance_panel.setVisible(visible)
+        if visible:
+            self.appearance_panel.opacity_slider.setFocus()
+        QTimer.singleShot(0, self._fit_to_screen)
+
+    def _apply_inline_appearance(self, opacity_percent: int, important_text_color: object) -> None:
+        color = important_text_color if isinstance(important_text_color, str) else None
+        self._set_appearance(opacity_percent, color, persist=True)
+
+    def _set_appearance(
+        self,
+        opacity_percent: int,
+        important_text_color: str | None,
+        *,
+        persist: bool = False,
+    ) -> None:
+        self._opacity_percent = max(
+            MIN_OPACITY_PERCENT,
+            min(MAX_OPACITY_PERCENT, int(opacity_percent)),
+        )
+        color = QColor(important_text_color or "")
+        self._important_text_color = color.name() if color.isValid() else None
+        if hasattr(self, "appearance_panel"):
+            self.appearance_panel.set_appearance(
+                self._opacity_percent,
+                self._important_text_color,
+            )
+        if persist:
+            self.settings.setValue("appearance/opacity_percent", self._opacity_percent)
+            if self._important_text_color is None:
+                self.settings.remove("appearance/important_text_color")
+            else:
+                self.settings.setValue(
+                    "appearance/important_text_color",
+                    self._important_text_color,
+                )
+            self.settings.sync()
+        self._apply_theme()
+
+    def _metadata_lines(self, snapshot: UsageSnapshot) -> list[str]:
+        lines: list[str] = []
+        if snapshot.plan_types:
+            lines.append(f"方案：{' / '.join(snapshot.plan_types)}")
+        for credits in snapshot.credit_balances:
+            if credits.unlimited:
+                detail = "無限額"
+            elif credits.balance:
+                detail = f"餘額 {credits.balance}"
+            else:
+                detail = "有可用點數" if credits.has_credits else "無可用點數"
+            lines.append(f"{credits.bucket_label} 點數：{detail}")
+        for spend in snapshot.spend_limits:
+            lines.append(
+                f"{spend.bucket_label} 個人額度：剩餘 {spend.remaining_percent}%"
+                f"（已用 {spend.used}／上限 {spend.limit}）"
+            )
+        if snapshot.reset_credit_count is not None:
+            lines.append(f"可用重設點數：{snapshot.reset_credit_count}")
+        return lines
+
+    def _update_countdowns(self) -> None:
+        for row in self._usage_rows:
+            row.update_countdown()
+
+    def _update_tray_tooltip(self) -> None:
+        if not self.tray_icon:
+            return
+        if not self._snapshot or not self._snapshot.windows:
+            self.tray_icon.setToolTip("Codex 剩餘用量")
+            return
+        tightest = min(self._snapshot.windows, key=lambda window: window.remaining_percent)
+        self.tray_icon.setToolTip(f"Codex：最低剩餘 {tightest.remaining_percent}%")
+
+    def _restore_or_position(self) -> None:
+        saved = self.settings.value("window/geometry")
+        if isinstance(saved, QByteArray) and not saved.isEmpty() and self.restoreGeometry(saved):
+            self._clamp_to_visible_screen()
+            return
+        self._fit_to_screen()
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+            self.move(area.right() - self.width() - 16, area.top() + 16)
+
+    def _save_geometry(self) -> None:
+        if self._position_initialized:
+            self.settings.setValue("window/geometry", self.saveGeometry())
+
+    def _fit_to_screen(self) -> None:
+        screen = (
+            QGuiApplication.screenAt(self.frameGeometry().center())
+            or QGuiApplication.primaryScreen()
+        )
+        max_height = int(screen.availableGeometry().height() * 0.7) if screen else 720
+        margins = self.card_layout.contentsMargins()
+        chrome_height = margins.top() + margins.bottom()
+        visible_items = 0
+        for index in range(self.card_layout.count()):
+            item = self.card_layout.itemAt(index)
+            widget = item.widget()
+            if widget is None or widget is self.stack or not widget.isVisible():
+                continue
+            chrome_height += widget.sizeHint().height()
+            visible_items += 1
+        chrome_height += self.card_layout.spacing() * visible_items
+
+        page = self.stack.currentWidget()
+        if page is self.scroll:
+            self.content.adjustSize()
+            page_height = max(100, self.content.sizeHint().height())
+        else:
+            page_height = max(140, page.sizeHint().height() if page else 140)
+        stack_height = min(page_height, max(100, max_height - chrome_height - 16))
+        self.stack.setFixedHeight(stack_height)
+        desired = min(max(260, chrome_height + stack_height + 16), max_height)
+        self.resize(360, desired)
+        self._clamp_to_visible_screen()
+
+    def _clamp_to_visible_screen(self) -> None:
+        screens = QGuiApplication.screens()
+        if not screens:
+            return
+        geometry = self.frameGeometry()
+        screen = next(
+            (
+                candidate
+                for candidate in screens
+                if candidate.availableGeometry().intersects(geometry)
+            ),
+            QGuiApplication.primaryScreen() or screens[0],
+        )
+        area = screen.availableGeometry()
+        x = min(max(geometry.x(), area.left()), max(area.left(), area.right() - self.width() + 1))
+        y = min(max(geometry.y(), area.top()), max(area.top(), area.bottom() - self.height() + 1))
+        if (x, y) != (geometry.x(), geometry.y()):
+            self.move(x, y)
+
+    def _apply_theme(self) -> None:
+        self.setWindowOpacity(self._opacity_percent / 100)
+        self.setStyleSheet(build_stylesheet(is_dark_theme(), self._important_text_color))
+        for row in self._usage_rows:
+            _refresh_style(row)
+
+    @staticmethod
+    def _clear_layout(layout: QVBoxLayout, keep: Iterable[QWidget] = ()) -> None:
+        keep_set = set(keep)
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget not in keep_set:
+                widget.deleteLater()

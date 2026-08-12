@@ -1,0 +1,58 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Create virtual environment
+        shell: pwsh
+        run: python -m venv .venv
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.lock
+          .\.venv\Scripts\python.exe -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Lint and test
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m ruff format --check .
+          .\.venv\Scripts\python.exe -m ruff check .
+          .\.venv\Scripts\python.exe -m pytest
+
+      - name: Build portable executables
+        shell: pwsh
+        run: |
+          .\scripts\build.ps1 -SkipTests
+          .\scripts\build-claude.ps1 -SkipTests
+
+      - name: Upload portable executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-usage-widgets-windows-x64
+          path: |
+            dist/CodexUsageWidget.exe
+            dist/ClaudeUsageWidget.exe
+          if-no-files-found: error
+          retention-days: 14
