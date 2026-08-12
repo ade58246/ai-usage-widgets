@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QColorDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -139,16 +140,16 @@ class AppearancePanel(QFrame):
         self._important_text_color = self._normalize_color(important_text_color)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(9)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
 
         heading = QHBoxLayout()
         heading.setSpacing(6)
         title_column = QVBoxLayout()
         title_column.setSpacing(1)
-        title = QLabel("介面外觀")
+        title = QLabel("外觀與可讀性")
         title.setObjectName("PanelTitle")
-        description = QLabel("調整卡片透明度與重點文字色；變更會立即儲存。")
+        description = QLabel("即時調整透明度；重點色會同步套用文字與用量條。")
         description.setObjectName("Muted")
         description.setWordWrap(True)
         title_column.addWidget(title)
@@ -164,8 +165,9 @@ class AppearancePanel(QFrame):
 
         opacity_heading = QHBoxLayout()
         opacity_label = QLabel("介面透明度")
+        opacity_label.setObjectName("FieldLabel")
         self.opacity_value_label = QLabel()
-        self.opacity_value_label.setObjectName("Metadata")
+        self.opacity_value_label.setObjectName("ValuePill")
         opacity_heading.addWidget(opacity_label)
         opacity_heading.addStretch(1)
         opacity_heading.addWidget(self.opacity_value_label)
@@ -178,6 +180,8 @@ class AppearancePanel(QFrame):
         )
         self.opacity_slider.setSingleStep(5)
         self.opacity_slider.setPageStep(10)
+        self.opacity_slider.setTracking(True)
+        self.opacity_slider.setMinimumHeight(30)
         self.opacity_slider.setAccessibleName("介面透明度")
         self.opacity_slider.setAccessibleDescription(
             f"可調整為 {MIN_OPACITY_PERCENT}% 到 {MAX_OPACITY_PERCENT}%"
@@ -185,15 +189,53 @@ class AppearancePanel(QFrame):
         self.opacity_slider.valueChanged.connect(self._opacity_changed)
         layout.addWidget(self.opacity_slider)
 
-        color_label = QLabel("重點文字顏色")
+        color_label = QLabel("重點資訊顏色")
+        color_label.setObjectName("FieldLabel")
         layout.addWidget(color_label)
+
+        color_row = QHBoxLayout()
+        color_row.setSpacing(8)
+        self.color_swatch = QFrame()
+        self.color_swatch.setObjectName("ColorSwatch")
+        self.color_swatch.setFixedSize(30, 30)
+        self.color_swatch.setAccessibleName("目前重點資訊顏色")
+        color_row.addWidget(self.color_swatch)
         self.color_button = QPushButton()
+        self.color_button.setObjectName("ColorButton")
         self.color_button.setAccessibleName("選擇重點文字顏色")
         self.color_button.clicked.connect(self._choose_color)
-        layout.addWidget(self.color_button)
+        color_row.addWidget(self.color_button, 1)
+        self.color_value_label = QLabel()
+        self.color_value_label.setObjectName("Metadata")
+        color_row.addWidget(self.color_value_label)
+        layout.addLayout(color_row)
+
+        preview = QFrame()
+        preview.setObjectName("AppearancePreview")
+        preview_layout = QVBoxLayout(preview)
+        preview_layout.setContentsMargins(10, 8, 10, 8)
+        preview_layout.setSpacing(5)
+        preview_heading = QHBoxLayout()
+        preview_caption = QLabel("即時預覽")
+        preview_caption.setObjectName("Metadata")
+        self.preview_label = QLabel("72% 剩餘")
+        self.preview_label.setProperty("important", True)
+        preview_heading.addWidget(preview_caption)
+        preview_heading.addStretch(1)
+        preview_heading.addWidget(self.preview_label)
+        preview_layout.addLayout(preview_heading)
+        self.preview_bar = QProgressBar()
+        self.preview_bar.setRange(0, 100)
+        self.preview_bar.setValue(72)
+        self.preview_bar.setTextVisible(False)
+        self.preview_bar.setProperty("important", True)
+        self.preview_bar.setAccessibleName("重點顏色預覽")
+        preview_layout.addWidget(self.preview_bar)
+        layout.addWidget(preview)
 
         buttons = QHBoxLayout()
         self.reset_button = QPushButton("恢復預設")
+        self.reset_button.setObjectName("SecondaryButton")
         self.reset_button.setToolTip("清除自訂重點文字色並將透明度恢復為 100%")
         self.reset_button.clicked.connect(self._reset_defaults)
         buttons.addWidget(self.reset_button)
@@ -233,14 +275,16 @@ class AppearancePanel(QFrame):
 
     def _update_color_button(self) -> None:
         if self._important_text_color is None:
-            self.color_button.setText("使用預設重點色…")
-            self.color_button.setStyleSheet("")
-            return
-        color = QColor(self._important_text_color)
-        foreground = "#FFFFFF" if color.lightnessF() < 0.48 else "#172033"
-        self.color_button.setText(f"{color.name().upper()}　變更…")
-        self.color_button.setStyleSheet(
-            f"background: {color.name()}; color: {foreground}; font-weight: 600;"
+            color = QColor("#69A9FF" if is_dark_theme() else "#0B63CE")
+            self.color_button.setText("選擇顏色…")
+            self.color_value_label.setText("系統預設")
+        else:
+            color = QColor(self._important_text_color)
+            self.color_button.setText("變更顏色…")
+            self.color_value_label.setText(color.name().upper())
+        self.color_swatch.setStyleSheet(
+            f"background: {color.name()}; border: 2px solid rgba(255, 255, 255, 150);"
+            "border-radius: 9px;"
         )
 
     def _reset_defaults(self) -> None:
@@ -269,27 +313,40 @@ class UsageRow(QFrame):
         self.setObjectName("UsageRow")
         self.window_data = window
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        accent = QFrame()
+        accent.setObjectName("UsageAccent")
+        accent.setFixedWidth(5)
+        accent.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        outer_layout.addWidget(accent)
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+        outer_layout.addWidget(body, 1)
 
         heading = QHBoxLayout()
         title = QLabel(window.label)
+        title.setObjectName("UsageTitle")
         title.setProperty("important", True)
         self.title_label = title
         title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         title.setWordWrap(True)
         kind = "主要" if window.window_kind == "primary" else "次要"
         duration = QLabel(f"{kind} · {format_duration(window.window_duration_mins)}")
-        duration.setObjectName("Muted")
+        duration.setObjectName("WindowChip")
         heading.addWidget(title)
         heading.addWidget(duration, 0, Qt.AlignmentFlag.AlignRight)
         layout.addLayout(heading)
 
         value_row = QHBoxLayout()
         percent = QLabel(f"{window.remaining_percent}% 剩餘")
+        percent.setObjectName("UsagePercent")
         percent_font = percent.font()
-        percent_font.setPointSizeF(max(15.0, percent_font.pointSizeF() * 1.25))
+        percent_font.setPointSizeF(max(19.0, percent_font.pointSizeF() * 1.5))
         percent_font.setWeight(QFont.Weight.DemiBold)
         percent.setFont(percent_font)
         percent.setProperty("important", True)
@@ -297,6 +354,7 @@ class UsageRow(QFrame):
         severity, severity_label = severity_for(window)
         percent.setProperty("severity", severity)
         badge = QLabel(f"● {severity_label}")
+        badge.setObjectName("StatusBadge")
         badge.setProperty("severity", severity)
         value_row.addWidget(percent)
         value_row.addStretch(1)
@@ -308,6 +366,7 @@ class UsageRow(QFrame):
         progress.setRange(0, 100)
         progress.setValue(window.remaining_percent)
         progress.setTextVisible(False)
+        progress.setMinimumHeight(10)
         progress.setProperty("severity", severity)
         progress.setProperty("important", True)
         self.progress_bar = progress
@@ -324,7 +383,7 @@ class UsageRow(QFrame):
 
     def update_countdown(self) -> None:
         timestamp = self.window_data.resets_at
-        self.reset_label.setText(format_countdown(timestamp))
+        self.reset_label.setText(f"⏱ {format_countdown(timestamp)}")
         self.reset_label.setToolTip(format_absolute_time(timestamp))
 
 
@@ -351,6 +410,11 @@ class FloatingUsageWidget(QWidget):
         self._opacity_percent = self._load_opacity_setting()
         self._important_text_color = self._load_important_text_color_setting()
 
+        self._appearance_sync_timer = QTimer(self)
+        self._appearance_sync_timer.setSingleShot(True)
+        self._appearance_sync_timer.setInterval(300)
+        self._appearance_sync_timer.timeout.connect(self.settings.sync)
+
         self.setObjectName("FloatingUsageWidget")
         self.setWindowTitle("Codex 剩餘用量")
         self.setWindowIcon(create_meter_icon())
@@ -360,26 +424,37 @@ class FloatingUsageWidget(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setMinimumWidth(320)
-        self.setMaximumWidth(420)
-        self.resize(360, 300)
+        self.setMinimumWidth(340)
+        self.setMaximumWidth(460)
+        self.resize(380, 320)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setContentsMargins(11, 11, 11, 14)
         self.card = QFrame()
         self.card.setObjectName("Card")
+        shadow = QGraphicsDropShadowEffect(self.card)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 5)
+        shadow.setColor(QColor(0, 0, 0, 72))
+        self.card.setGraphicsEffect(shadow)
         outer.addWidget(self.card)
 
         self.card_layout = QVBoxLayout(self.card)
-        self.card_layout.setContentsMargins(14, 12, 14, 14)
-        self.card_layout.setSpacing(10)
+        self.card_layout.setContentsMargins(18, 16, 18, 16)
+        self.card_layout.setSpacing(12)
 
         header = DraggableHeader()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
+        brand_mark = QLabel("C")
+        brand_mark.setObjectName("BrandMark")
+        brand_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_mark.setFixedSize(38, 38)
+        brand_mark.setAccessibleName("Codex")
+        header_layout.addWidget(brand_mark)
         title_column = QVBoxLayout()
-        title_column.setSpacing(1)
+        title_column.setSpacing(2)
         title = QLabel("Codex 剩餘用量")
         title.setObjectName("Title")
         self.account_label = QLabel("正在連線…")
@@ -390,24 +465,30 @@ class FloatingUsageWidget(QWidget):
         header_layout.addLayout(title_column, 1)
 
         self.appearance_button = QToolButton()
-        self.appearance_button.setText("⚙")
+        self.appearance_button.setObjectName("HeaderButton")
+        self.appearance_button.setText("Aa")
         self.appearance_button.setToolTip("在卡片中調整透明度與重點文字顏色")
         self.appearance_button.setAccessibleName("顯示介面外觀調整")
         self.appearance_button.setCheckable(True)
+        self.appearance_button.setFixedSize(36, 36)
         self.appearance_button.clicked.connect(self._set_appearance_panel_visible)
         header_layout.addWidget(self.appearance_button)
 
         self.refresh_button = QToolButton()
+        self.refresh_button.setObjectName("HeaderButton")
         self.refresh_button.setText("↻")
         self.refresh_button.setToolTip("立即更新")
         self.refresh_button.setAccessibleName("立即更新用量")
+        self.refresh_button.setFixedSize(36, 36)
         self.refresh_button.clicked.connect(self.refresh_requested.emit)
         header_layout.addWidget(self.refresh_button)
 
         self.close_button = QToolButton()
+        self.close_button.setObjectName("HeaderButton")
         self.close_button.setText("×")
         self.close_button.setToolTip("縮到系統匣")
         self.close_button.setAccessibleName("縮到系統匣")
+        self.close_button.setFixedSize(36, 36)
         self.close_button.clicked.connect(self.close)
         header_layout.addWidget(self.close_button)
         self.card_layout.addWidget(header)
@@ -425,7 +506,17 @@ class FloatingUsageWidget(QWidget):
 
         self.status_label = QLabel("● 啟動中")
         self.status_label.setObjectName("StatusLabel")
-        self.card_layout.addWidget(self.status_label)
+        self.status_label.setProperty("connection", "working")
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(
+            self.status_label,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        status_row.addStretch(1)
+        self.card_layout.addLayout(status_row)
 
         self.error_banner = QLabel()
         self.error_banner.setObjectName("ErrorBanner")
@@ -460,13 +551,14 @@ class FloatingUsageWidget(QWidget):
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(8)
+        self.content_layout.setSpacing(10)
         self.scroll.setWidget(self.content)
         self.stack.addWidget(self.scroll)
 
         self.updated_label = QLabel("尚未取得資料")
         self.updated_label.setObjectName("Metadata")
         self.updated_label.setWordWrap(True)
+        self.updated_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.card_layout.addWidget(self.updated_label)
 
         self._countdown_timer = QTimer(self)
@@ -503,6 +595,9 @@ class FloatingUsageWidget(QWidget):
     def prepare_quit(self) -> None:
         self._quitting = True
         self._save_geometry()
+        if self._appearance_sync_timer.isActive():
+            self._appearance_sync_timer.stop()
+            self.settings.sync()
         if self.tray_icon:
             self.tray_icon.hide()
 
@@ -521,6 +616,20 @@ class FloatingUsageWidget(QWidget):
             ConnectionState.ERROR: "⚠ 連線異常",
         }
         self.status_label.setText(labels[state])
+        if state == ConnectionState.READY:
+            connection_style = "ready"
+        elif state in {
+            ConnectionState.MISSING_CLI,
+            ConnectionState.OUTDATED_CLI,
+            ConnectionState.ERROR,
+        }:
+            connection_style = "warning"
+        elif state in {ConnectionState.STOPPED, ConnectionState.AUTH_REQUIRED}:
+            connection_style = "neutral"
+        else:
+            connection_style = "working"
+        self.status_label.setProperty("connection", connection_style)
+        _refresh_style(self.status_label)
         self.login_button.setVisible(state == ConnectionState.AUTH_REQUIRED)
         if state == ConnectionState.AUTH_REQUIRED:
             self.message_label.setText(
@@ -546,6 +655,8 @@ class FloatingUsageWidget(QWidget):
         self.refresh_button.setEnabled(not refreshing)
         if refreshing and self._snapshot is not None:
             self.status_label.setText("◌ 更新中")
+            self.status_label.setProperty("connection", "working")
+            _refresh_style(self.status_label)
 
     def set_account(self, account: object) -> None:
         if not isinstance(account, dict):
@@ -579,7 +690,10 @@ class FloatingUsageWidget(QWidget):
             metadata_card.setObjectName("MetadataCard")
             metadata_layout = QVBoxLayout(metadata_card)
             metadata_layout.setContentsMargins(12, 10, 12, 10)
-            metadata_layout.setSpacing(4)
+            metadata_layout.setSpacing(5)
+            metadata_heading = QLabel("帳號與額度")
+            metadata_heading.setObjectName("SectionLabel")
+            metadata_layout.addWidget(metadata_heading)
             for line in metadata:
                 label = QLabel(line)
                 label.setObjectName("Metadata")
@@ -742,17 +856,25 @@ class FloatingUsageWidget(QWidget):
         *,
         persist: bool = False,
     ) -> None:
-        self._opacity_percent = max(
+        next_opacity = max(
             MIN_OPACITY_PERCENT,
             min(MAX_OPACITY_PERCENT, int(opacity_percent)),
         )
         color = QColor(important_text_color or "")
-        self._important_text_color = color.name() if color.isValid() else None
+        next_color = color.name() if color.isValid() else None
+        color_changed = next_color != self._important_text_color
+        self._opacity_percent = next_opacity
+        self._important_text_color = next_color
         if hasattr(self, "appearance_panel"):
-            self.appearance_panel.set_appearance(
-                self._opacity_percent,
-                self._important_text_color,
-            )
+            panel = self.appearance_panel
+            if (
+                panel.opacity_percent != self._opacity_percent
+                or panel.important_text_color != self._important_text_color
+            ):
+                panel.set_appearance(
+                    self._opacity_percent,
+                    self._important_text_color,
+                )
         if persist:
             self.settings.setValue("appearance/opacity_percent", self._opacity_percent)
             if self._important_text_color is None:
@@ -762,8 +884,10 @@ class FloatingUsageWidget(QWidget):
                     "appearance/important_text_color",
                     self._important_text_color,
                 )
-            self.settings.sync()
-        self._apply_theme()
+            self._appearance_sync_timer.start()
+        self.setWindowOpacity(self._opacity_percent / 100)
+        if color_changed:
+            self._apply_theme()
 
     def _metadata_lines(self, snapshot: UsageSnapshot) -> list[str]:
         lines: list[str] = []
@@ -841,7 +965,7 @@ class FloatingUsageWidget(QWidget):
         stack_height = min(page_height, max(100, max_height - chrome_height - 16))
         self.stack.setFixedHeight(stack_height)
         desired = min(max(260, chrome_height + stack_height + 16), max_height)
-        self.resize(360, desired)
+        self.resize(380, desired)
         self._clamp_to_visible_screen()
 
     def _clamp_to_visible_screen(self) -> None:

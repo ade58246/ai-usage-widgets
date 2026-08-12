@@ -6,6 +6,8 @@
 
 這個專案包含兩個 Windows 10/11 x64 繁體中文浮動小工具：
 
+![Codex 剩餘用量小工具預覽](assets/codex-widget-preview.png)
+
 - `CodexUsageWidget.exe` 透過本機 `codex app-server` 的
   `account/rateLimits/read` 顯示 ChatGPT Codex 用量。
 - `ClaudeUsageWidget.exe` 透過 Claude Code 官方 status line 的 `rate_limits` 欄位，

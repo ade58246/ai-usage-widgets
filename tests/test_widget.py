@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtWidgets import QStyle, QStyleOptionSlider
 
 from codex_usage_widget.autostart import AutostartManager
 from codex_usage_widget.models import RateLimitWindowView, UsageSnapshot
@@ -107,6 +108,7 @@ def test_appearance_panel_is_inline_and_persists_changes(qtbot, tmp_path) -> Non
     widget.appearance_button.click()
     assert widget.appearance_panel.isVisible()
     assert widget.appearance_button.isChecked()
+    assert widget.status_label.height() <= 40
 
     widget.appearance_panel.opacity_slider.setValue(70)
     assert widget.appearance_panel.opacity_value_label.text() == "70%"
@@ -124,3 +126,52 @@ def test_appearance_panel_is_inline_and_persists_changes(qtbot, tmp_path) -> Non
     qtbot.keyClick(widget, Qt.Key.Key_Escape)
     assert widget.appearance_panel.isHidden()
     assert widget.isVisible()
+
+
+def test_opacity_preview_does_not_rebuild_the_stylesheet(qtbot, tmp_path, monkeypatch) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    autostart = AutostartManager(FakeRegistry(), executable="widget.exe", frozen=False)
+    widget = FloatingUsageWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.appearance_button.click()
+
+    stylesheet_updates: list[str] = []
+    monkeypatch.setattr(widget, "setStyleSheet", stylesheet_updates.append)
+
+    widget.appearance_panel.opacity_slider.setValue(90)
+    widget.appearance_panel.opacity_slider.setValue(75)
+    widget.appearance_panel.opacity_slider.setValue(60)
+
+    assert widget.appearance_panel.opacity_percent == 60
+    assert stylesheet_updates == []
+
+
+def test_opacity_slider_can_be_dragged_continuously(qtbot, tmp_path) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    autostart = AutostartManager(FakeRegistry(), executable="widget.exe", frozen=False)
+    widget = FloatingUsageWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.appearance_button.click()
+    qtbot.waitUntil(lambda: widget.appearance_panel.opacity_slider.width() > 100)
+
+    slider = widget.appearance_panel.opacity_slider
+    slider.setValue(100)
+    option = QStyleOptionSlider()
+    slider.initStyleOption(option)
+    handle = slider.style().subControlRect(
+        QStyle.ComplexControl.CC_Slider,
+        option,
+        QStyle.SubControl.SC_SliderHandle,
+        slider,
+    )
+    start = handle.center()
+    finish = QPoint(12, start.y())
+
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=start)
+    qtbot.mouseMove(slider, pos=finish, delay=20)
+    qtbot.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=finish)
+
+    assert slider.value() <= 45
+    assert settings.value("appearance/opacity_percent", type=int) == slider.value()
