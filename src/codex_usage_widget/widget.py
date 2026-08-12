@@ -464,25 +464,6 @@ class FloatingUsageWidget(QWidget):
         title_column.addWidget(self.account_label)
         header_layout.addLayout(title_column, 1)
 
-        self.appearance_button = QToolButton()
-        self.appearance_button.setObjectName("HeaderButton")
-        self.appearance_button.setText("Aa")
-        self.appearance_button.setToolTip("在卡片中調整透明度與重點文字顏色")
-        self.appearance_button.setAccessibleName("顯示介面外觀調整")
-        self.appearance_button.setCheckable(True)
-        self.appearance_button.setFixedSize(36, 36)
-        self.appearance_button.clicked.connect(self._set_appearance_panel_visible)
-        header_layout.addWidget(self.appearance_button)
-
-        self.refresh_button = QToolButton()
-        self.refresh_button.setObjectName("HeaderButton")
-        self.refresh_button.setText("↻")
-        self.refresh_button.setToolTip("立即更新")
-        self.refresh_button.setAccessibleName("立即更新用量")
-        self.refresh_button.setFixedSize(36, 36)
-        self.refresh_button.clicked.connect(self.refresh_requested.emit)
-        header_layout.addWidget(self.refresh_button)
-
         self.close_button = QToolButton()
         self.close_button.setObjectName("HeaderButton")
         self.close_button.setText("×")
@@ -492,6 +473,30 @@ class FloatingUsageWidget(QWidget):
         self.close_button.clicked.connect(self.close)
         header_layout.addWidget(self.close_button)
         self.card_layout.addWidget(header)
+
+        action_bar = QFrame()
+        action_bar.setObjectName("ActionBar")
+        action_layout = QHBoxLayout(action_bar)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(8)
+
+        self.appearance_button = QPushButton("外觀與透明度")
+        self.appearance_button.setObjectName("ActionButton")
+        self.appearance_button.setToolTip("展開透明度與重點資訊顏色設定")
+        self.appearance_button.setAccessibleName("顯示介面外觀與透明度調整")
+        self.appearance_button.setCheckable(True)
+        self.appearance_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.appearance_button.clicked.connect(self._set_appearance_panel_visible)
+        action_layout.addWidget(self.appearance_button, 1)
+
+        self.refresh_button = QPushButton("立即更新")
+        self.refresh_button.setObjectName("ActionButton")
+        self.refresh_button.setToolTip("立即重新讀取 Codex 剩餘用量")
+        self.refresh_button.setAccessibleName("立即更新用量")
+        self.refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_button.clicked.connect(self.refresh_requested.emit)
+        action_layout.addWidget(self.refresh_button, 1)
+        self.card_layout.addWidget(action_bar)
 
         self.appearance_panel = AppearancePanel(
             self._opacity_percent,
@@ -651,8 +656,9 @@ class FloatingUsageWidget(QWidget):
         self.refresh_button.setEnabled(state in {ConnectionState.READY, ConnectionState.ERROR})
 
     def set_refreshing(self, refreshing: bool) -> None:
-        self.refresh_button.setText("…" if refreshing else "↻")
-        self.refresh_button.setEnabled(not refreshing)
+        self.refresh_button.setText("更新中…" if refreshing else "立即更新")
+        self.refresh_button.setProperty("busy", refreshing)
+        _refresh_style(self.refresh_button)
         if refreshing and self._snapshot is not None:
             self.status_label.setText("◌ 更新中")
             self.status_label.setProperty("connection", "working")

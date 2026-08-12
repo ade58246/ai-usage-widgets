@@ -7,7 +7,7 @@ from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtWidgets import QStyle, QStyleOptionSlider
 
 from codex_usage_widget.autostart import AutostartManager
-from codex_usage_widget.models import RateLimitWindowView, UsageSnapshot
+from codex_usage_widget.models import ConnectionState, RateLimitWindowView, UsageSnapshot
 from codex_usage_widget.widget import (
     AppearancePanel,
     FloatingUsageWidget,
@@ -85,7 +85,7 @@ def test_saved_appearance_is_migrated_and_can_be_updated(qtbot, tmp_path) -> Non
 
     assert widget.windowOpacity() == pytest.approx(0.65, abs=1 / 255)
     assert "#123456" in widget.styleSheet()
-    assert widget.appearance_button.accessibleName() == "顯示介面外觀調整"
+    assert widget.appearance_button.accessibleName() == "顯示介面外觀與透明度調整"
     assert settings.value("appearance/important_text_color") == "#123456"
     assert settings.value("appearance/background_color") is None
 
@@ -175,3 +175,27 @@ def test_opacity_slider_can_be_dragged_continuously(qtbot, tmp_path) -> None:
 
     assert slider.value() <= 45
     assert settings.value("appearance/opacity_percent", type=int) == slider.value()
+
+
+def test_primary_actions_are_visible_and_mouse_clickable(qtbot, tmp_path) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    autostart = AutostartManager(FakeRegistry(), executable="widget.exe", frozen=False)
+    widget = FloatingUsageWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.set_connection_state(ConnectionState.READY)
+    widget.show()
+
+    assert widget.appearance_button.text() == "外觀與透明度"
+    assert widget.refresh_button.text() == "立即更新"
+    assert widget.appearance_button.isEnabled()
+    assert widget.refresh_button.isEnabled()
+
+    qtbot.mouseClick(widget.appearance_button, Qt.MouseButton.LeftButton)
+    assert widget.appearance_panel.isVisible()
+
+    with qtbot.waitSignal(widget.refresh_requested, timeout=1_000):
+        qtbot.mouseClick(widget.refresh_button, Qt.MouseButton.LeftButton)
+
+    widget.set_refreshing(True)
+    assert widget.refresh_button.text() == "更新中…"
+    assert widget.refresh_button.isEnabled()

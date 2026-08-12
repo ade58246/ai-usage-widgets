@@ -153,6 +153,10 @@ def build_stylesheet(dark: bool, important_text_override: str | None = None) -> 
             background: transparent;
             border: none;
         }}
+        QFrame#ActionBar {{
+            background: transparent;
+            border: none;
+        }}
         QLabel#BrandMark {{
             color: {token.surface};
             background: {token.important_text};
@@ -304,6 +308,26 @@ def build_stylesheet(dark: bool, important_text_override: str | None = None) -> 
         QPushButton#ColorButton {{
             text-align: left;
             font-weight: 600;
+        }}
+        QPushButton#ActionButton {{
+            min-height: 40px;
+            background: {token.surface};
+            border-color: {outline_soft};
+            font-size: 10pt;
+            font-weight: 600;
+        }}
+        QPushButton#ActionButton:hover {{
+            background: {interactive_soft};
+            border-color: {token.interactive};
+        }}
+        QPushButton#ActionButton:checked {{
+            color: {token.important_text};
+            background: {accent_soft};
+            border-color: {token.important_text};
+        }}
+        QPushButton#ActionButton[busy="true"] {{
+            color: {token.interactive};
+            background: {interactive_soft};
         }}
         QSlider::groove:horizontal {{
             height: 8px;
