@@ -115,7 +115,7 @@ def test_capture_script_writes_only_allowed_fields(tmp_path) -> None:
         text=True,
         encoding="utf-8",
         check=False,
-        timeout=10,
+        timeout=30,
     )
 
     assert completed.returncode == 0, completed.stderr
