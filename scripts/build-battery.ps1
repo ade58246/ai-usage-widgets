@@ -6,14 +6,16 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $uvCommand = Get-Command uv -ErrorAction SilentlyContinue
 $pythonExe = Join-Path $projectRoot ".venv\Scripts\python.exe"
+$uvLock = Join-Path $projectRoot "uv.lock"
+$useUv = $null -ne $uvCommand -and (Test-Path -LiteralPath $uvLock)
 
-if (-not $uvCommand -and -not (Test-Path -LiteralPath $pythonExe)) {
+if (-not $useUv -and -not (Test-Path -LiteralPath $pythonExe)) {
     throw "Missing uv or .venv. Install uv with 'scoop install uv' and run 'uv sync --locked'."
 }
 
 Push-Location $projectRoot
 try {
-    if ($uvCommand) {
+    if ($useUv) {
         if (-not $SkipTests) {
             & $uvCommand.Source run --frozen python -m pytest
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
