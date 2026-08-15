@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QStyle, QStyleOptionSlider
 
 from battery_usage_widget.autostart import VALUE_NAME, AutostartManager
 from battery_usage_widget.models import BatterySnapshot, BatteryState
+from battery_usage_widget.theme import DARK_TOKENS, LIGHT_TOKENS, build_stylesheet
 from battery_usage_widget.widget import (
     MAX_OPACITY_PERCENT,
     MIN_OPACITY_PERCENT,
@@ -50,6 +51,18 @@ def test_battery_formatters_and_presentation() -> None:
     assert format_capacity(54_445, 85_070) == "54.4 / 85.1 Wh"
     assert presentation_for(make_snapshot()) == ("normal", "● 使用電池")
     assert presentation_for(make_snapshot(percent=10)) == ("critical", "⚠ 電量緊迫")
+
+
+def test_battery_theme_uses_orange_for_normal_displays() -> None:
+    light_stylesheet = build_stylesheet(False)
+    dark_stylesheet = build_stylesheet(True)
+
+    assert LIGHT_TOKENS.normal == "#A74400"
+    assert LIGHT_TOKENS.surface_alt == "#FFF1DE"
+    assert DARK_TOKENS.normal == "#FFB15C"
+    assert DARK_TOKENS.surface_alt == "#3B2C20"
+    assert "#147A4B" not in light_stylesheet
+    assert "#5FD49A" not in dark_stylesheet
 
 
 def test_widget_is_topmost_and_renders_real_battery_fields(qtbot, tmp_path) -> None:

@@ -38,16 +38,16 @@ def main() -> int:
         )
         widget.set_snapshot(
             BatterySnapshot(
-                state=BatteryState.CHARGING,
-                percent=72,
+                state=BatteryState.FULL,
+                percent=100,
                 ac_online=True,
                 battery_present=True,
                 battery_saver=False,
                 remaining_seconds=None,
                 full_life_seconds=None,
                 max_capacity_mwh=85_070,
-                remaining_capacity_mwh=61_250,
-                power_rate_mw=42_000,
+                remaining_capacity_mwh=85_070,
+                power_rate_mw=0,
                 fetched_at=datetime.now(UTC),
             )
         )
