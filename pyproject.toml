@@ -25,6 +25,7 @@ dev = [
 [project.gui-scripts]
 codex-usage-widget = "codex_usage_widget.app:main"
 claude-usage-widget = "claude_usage_widget.app:main"
+battery-usage-widget = "battery_usage_widget.app:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

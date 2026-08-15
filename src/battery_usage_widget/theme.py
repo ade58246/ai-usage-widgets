@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QGuiApplication
+
+
+@dataclass(frozen=True, slots=True)
+class ThemeTokens:
+    surface: str
+    surface_alt: str
+    on_surface: str
+    on_surface_muted: str
+    outline: str
+    charging: str
+    normal: str
+    warning: str
+    critical: str
+    focus: str
+
+
+LIGHT_TOKENS = ThemeTokens(
+    surface="#F8FBFA",
+    surface_alt="#EDF5F1",
+    on_surface="#15251E",
+    on_surface_muted="#53675E",
+    outline="#C7D8D0",
+    charging="#0B6FCC",
+    normal="#147A4B",
+    warning="#916300",
+    critical="#B42318",
+    focus="#0067C0",
+)
+
+DARK_TOKENS = ThemeTokens(
+    surface="#1E2823",
+    surface_alt="#29352F",
+    on_surface="#F0F7F3",
+    on_surface_muted="#B7C8BF",
+    outline="#4B5E55",
+    charging="#70B7FF",
+    normal="#5FD49A",
+    warning="#F2C14E",
+    critical="#FF8B84",
+    focus="#7AB8FF",
+)
+
+
+def is_dark_theme() -> bool:
+    return QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+
+
+def _with_alpha(color: str, alpha: int) -> str:
+    value = QColor(color)
+    return f"rgba({value.red()}, {value.green()}, {value.blue()}, {alpha})"
+
+
+def build_stylesheet(dark: bool) -> str:
+    token = DARK_TOKENS if dark else LIGHT_TOKENS
+    normal_soft = _with_alpha(token.normal, 32)
+    charging_soft = _with_alpha(token.charging, 32)
+    warning_soft = _with_alpha(token.warning, 30)
+    critical_soft = _with_alpha(token.critical, 30)
+    return f"""
+        QWidget {{
+            color: {token.on_surface};
+            font-family: "Segoe UI Variable", "Microsoft JhengHei UI", "Segoe UI";
+            font-size: 12pt;
+        }}
+        QFrame#Card {{
+            background: {token.surface};
+            border: 1px solid {token.outline};
+            border-radius: 18px;
+        }}
+        QFrame#Header {{ background: transparent; border: none; }}
+        QLabel#BrandMark {{
+            color: {token.surface};
+            background: {token.normal};
+            border: none;
+            border-radius: 11px;
+            font-size: 17pt;
+            font-weight: 700;
+        }}
+        QLabel#Title {{ font-size: 16pt; font-weight: 650; }}
+        QLabel#Muted, QLabel#Metadata {{
+            color: {token.on_surface_muted};
+            font-size: 10pt;
+        }}
+        QLabel#StatusLabel {{
+            color: {token.normal};
+            background: {normal_soft};
+            border: 1px solid {token.normal};
+            border-radius: 9px;
+            padding: 3px 9px;
+            font-size: 9pt;
+            font-weight: 600;
+        }}
+        QLabel#ErrorBanner {{
+            color: {token.critical};
+            background: {critical_soft};
+            border: 1px solid {token.critical};
+            border-radius: 10px;
+            padding: 9px;
+        }}
+        QFrame#BatteryCard, QFrame#DetailsCard {{
+            background: {token.surface_alt};
+            border: 1px solid {token.outline};
+            border-radius: 13px;
+        }}
+        QLabel#BatteryPercent {{ font-size: 28pt; font-weight: 700; }}
+        QLabel#StateBadge {{
+            border: 1px solid {token.outline};
+            border-radius: 9px;
+            padding: 4px 8px;
+            font-size: 10pt;
+            font-weight: 600;
+        }}
+        QLabel#StateBadge[state="charging"] {{
+            color: {token.charging};
+            background: {charging_soft};
+            border-color: {token.charging};
+        }}
+        QLabel#StateBadge[state="normal"] {{
+            color: {token.normal};
+            background: {normal_soft};
+            border-color: {token.normal};
+        }}
+        QLabel#StateBadge[state="warning"] {{
+            color: {token.warning};
+            background: {warning_soft};
+            border-color: {token.warning};
+        }}
+        QLabel#StateBadge[state="critical"] {{
+            color: {token.critical};
+            background: {critical_soft};
+            border-color: {token.critical};
+        }}
+        QLabel#StateBadge[state="neutral"] {{ color: {token.on_surface_muted}; }}
+        QLabel#Summary {{ color: {token.on_surface_muted}; font-size: 11pt; }}
+        QLabel#DetailLabel {{ color: {token.on_surface_muted}; font-size: 10pt; }}
+        QLabel#DetailValue {{ font-size: 10pt; font-weight: 600; }}
+        QProgressBar#BatteryProgress {{
+            min-height: 14px;
+            max-height: 14px;
+            border: none;
+            border-radius: 7px;
+            background: {token.outline};
+        }}
+        QProgressBar#BatteryProgress::chunk {{
+            border-radius: 7px;
+            background: {token.normal};
+        }}
+        QProgressBar#BatteryProgress[state="charging"]::chunk {{
+            background: {token.charging};
+        }}
+        QProgressBar#BatteryProgress[state="warning"]::chunk {{
+            background: {token.warning};
+        }}
+        QProgressBar#BatteryProgress[state="critical"]::chunk {{
+            background: {token.critical};
+        }}
+        QPushButton, QToolButton {{
+            min-height: 36px;
+            border: 1px solid {token.outline};
+            border-radius: 9px;
+            padding: 2px 10px;
+            background: {token.surface_alt};
+            color: {token.on_surface};
+        }}
+        QPushButton:hover, QToolButton:hover {{ border-color: {token.charging}; }}
+        QPushButton:focus, QToolButton:focus {{ border: 2px solid {token.focus}; }}
+        QToolButton#HeaderButton {{
+            min-width: 36px;
+            max-width: 36px;
+            min-height: 36px;
+            max-height: 36px;
+            padding: 0;
+            background: transparent;
+        }}
+        QMenu {{
+            background: {token.surface};
+            color: {token.on_surface};
+            border: 1px solid {token.outline};
+            padding: 6px;
+        }}
+        QMenu::item {{ padding: 7px 24px 7px 12px; border-radius: 5px; }}
+        QMenu::item:selected {{ background: {token.surface_alt}; }}
+    """

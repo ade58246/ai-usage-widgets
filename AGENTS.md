@@ -2,17 +2,19 @@
 
 ## Project Structure & Module Organization
 
-Production code lives in `src/codex_usage_widget/` and `src/claude_usage_widget/`, automated tests in `tests/`, static Windows packaging resources in `assets/`, and build helpers in `scripts/`. Group modules by feature rather than file type. Do not commit generated output, dependency caches, credentials, local usage caches, or editor-specific files; keep them in `.gitignore`.
+Production code lives in `src/codex_usage_widget/`, `src/claude_usage_widget/`, and `src/battery_usage_widget/`; automated tests live in `tests/`, static Windows packaging resources in `assets/`, and build helpers in `scripts/`. Group modules by feature rather than file type. Do not commit generated output, dependency caches, credentials, local usage caches, or editor-specific files; keep them in `.gitignore`.
 
 ## Build, Test, and Development Commands
 
 - `.\.venv\Scripts\python.exe -m codex_usage_widget` — run the widget from source.
 - `.\.venv\Scripts\python.exe -m claude_usage_widget` — run the Claude widget from source.
+- `.\.venv\Scripts\python.exe -m battery_usage_widget` — run the Windows battery widget from source.
 - `.\.venv\Scripts\python.exe -m pytest` — run unit, protocol, and Qt tests.
 - `.\.venv\Scripts\python.exe -m ruff check .` — run static lint checks.
 - `.\.venv\Scripts\python.exe -m ruff format .` — format Python source.
 - `.\scripts\build.ps1` — test, lint, generate the icon, and build the single-file EXE.
 - `.\scripts\build-claude.ps1` — test, lint, generate the Claude icon, and build its single-file EXE.
+- `.\scripts\build-battery.ps1` — test, lint, generate the battery icon, and build its single-file EXE.
 - `git diff --check` — detect whitespace errors before committing.
 
 ## Coding Style & Naming Conventions

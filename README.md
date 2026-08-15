@@ -1,17 +1,21 @@
-# Codex／Claude 剩餘用量小工具
+# Codex／Claude／電池狀態小工具
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows)](#使用條件)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-這個專案包含兩個 Windows 10/11 x64 繁體中文浮動小工具：
+這個專案包含三個 Windows 10/11 x64 繁體中文浮動小工具：
 
 ![Codex 剩餘用量小工具預覽](assets/codex-widget-preview.png)
+
+![電池用量與充電狀態小工具預覽](assets/battery-widget-preview.png)
 
 - `CodexUsageWidget.exe` 透過本機 `codex app-server` 的
   `account/rateLimits/read` 顯示 ChatGPT Codex 用量。
 - `ClaudeUsageWidget.exe` 透過 Claude Code 官方 status line 的 `rate_limits` 欄位，
   顯示 5 小時與 7 天訂閱用量。
+- `BatteryUsageWidget.exe` 直接呼叫 Windows 電源 API，顯示本機電量、充放電狀態、即時功率、
+  容量、省電模式及 Windows 可提供的預估時間。
 
 ## 功能
 
@@ -23,6 +27,7 @@
 - app-server 事件更新加上每 60 秒完整校正。
 - 系統匣、單一執行個體與打包版 Windows 自動啟動。
 - 淺色／深色、高 DPI、鍵盤操作及明確的正常／注意／緊迫文字狀態。
+- 電池小工具每 5 秒讀取本機狀態；不連網、不保存歷史資料，也不需要額外驅動程式。
 
 協定細節請參考 [OpenAI 官方 Codex App Server 文件](https://developers.openai.com/codex/app-server)
 及 [Anthropic 官方 status line 文件](https://code.claude.com/docs/en/statusline)。
@@ -34,6 +39,8 @@
 - Claude 小工具需要 Claude Code 2.1.80 以上、`claude` 位於 `PATH`，以及 Claude.ai
   Pro／Max 等會提供 `rate_limits` 的訂閱登入。API key 帳號不會提供這組訂閱用量欄位。
 - 執行打包後的 EXE 不需要另外安裝 Python。
+- 電池小工具必須在具有 Windows 電源管理介面的電腦執行；桌上型電腦沒有電池時會明確顯示
+  「未偵測到電池」。
 
 若電腦尚未登入 ChatGPT，小工具會顯示「使用 ChatGPT 登入」。登入頁由 Codex app-server
 產生並在系統預設瀏覽器中開啟；本程式不讀取、不記錄也不傳送 OAuth token。
@@ -64,6 +71,7 @@ Scoop 顯示的 Python 安裝路徑建立 `.venv`。
 # 執行
 .\.venv\Scripts\python.exe -m codex_usage_widget
 .\.venv\Scripts\python.exe -m claude_usage_widget
+.\.venv\Scripts\python.exe -m battery_usage_widget
 
 # 測試
 .\.venv\Scripts\python.exe -m pytest
@@ -75,12 +83,14 @@ Scoop 顯示的 Python 安裝路徑建立 `.venv`。
 # 測試後打包單一 EXE
 .\scripts\build.ps1
 .\scripts\build-claude.ps1
+.\scripts\build-battery.ps1
 ```
 
-建置結果位於 `dist\CodexUsageWidget.exe` 與 `dist\ClaudeUsageWidget.exe`。兩者都是未簽章的
-可攜版程式，Windows SmartScreen 可能在第一次執行時顯示提示。
+建置結果位於 `dist\CodexUsageWidget.exe`、`dist\ClaudeUsageWidget.exe` 與
+`dist\BatteryUsageWidget.exe`。三者都是未簽章的可攜版程式，Windows SmartScreen 可能在
+第一次執行時顯示提示。
 
-GitHub Actions 會在 Windows runner 執行格式檢查、靜態檢查、完整測試與兩個 EXE 的封裝，
+GitHub Actions 會在 Windows runner 執行格式檢查、靜態檢查、完整測試與三個 EXE 的封裝，
 並將可攜版程式保存為工作流程 artifact。貢獻方式請參考 [CONTRIBUTING.md](CONTRIBUTING.md)，
 安全性回報方式請參考 [SECURITY.md](SECURITY.md)。
 
@@ -94,6 +104,9 @@ GitHub Actions 會在 Windows runner 執行格式檢查、靜態檢查、完整�
 - Codex 的「立即更新」按鈕會直接重新查詢；Claude 的 `↻` 重新讀取 status line 快取與登入狀態。
 - Claude Code 在執行期間會依官方 status line 的 `refreshInterval` 每 60 秒更新本機快取；
   Claude Code 關閉後，小工具會保留最後資料並標示等待下一次更新。
+- 電池小工具預設位於左下角，避免遮住預設在右側的 Codex／Claude 卡片；拖曳後會記住位置。
+- 電池的預估時間與即時功率取決於電池韌體及 Windows 驅動，沒有可靠數值時會顯示「未知」或
+  「Windows 尚未提供」，不會使用無效哨兵值推算。
 - `×` 將卡片隱藏到系統匣，而不會停止更新。
 - 系統匣選單可顯示／隱藏、立即更新、切換登入 Windows 後自動啟動，或完全退出。
 - 外觀調整列展開時，`Esc` 會先將它收合；其他情況下則將卡片縮到系統匣。
