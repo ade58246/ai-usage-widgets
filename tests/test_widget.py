@@ -13,6 +13,7 @@ from codex_usage_widget.widget import (
     FloatingUsageWidget,
     format_countdown,
     format_duration,
+    format_quota_window,
     severity_for,
 )
 from tests.test_windows_integration import FakeRegistry
@@ -40,6 +41,8 @@ def make_snapshot() -> UsageSnapshot:
 def test_formatters_and_severity() -> None:
     assert format_duration(300) == "5 小時"
     assert format_duration(None) == "時間窗未知"
+    assert format_quota_window(300) == "5 小時額度"
+    assert format_quota_window(None) == "額度時間窗未知"
     assert format_countdown(1_061, now=1_000) == "1 分 1 秒後重設"
     assert severity_for(make_snapshot().windows[0]) == ("warning", "注意")
 
@@ -60,6 +63,17 @@ def test_widget_is_topmost_and_renders_snapshot(qtbot, tmp_path) -> None:
     assert widget._usage_rows[0].percent_label.property("important") is True
     assert widget._usage_rows[0].reset_label.property("important") is True
     assert widget._usage_rows[0].progress_bar.property("important") is True
+    assert widget._usage_rows[0].duration_label.text() == "5 小時額度"
+
+
+def test_appearance_preview_cannot_be_mistaken_for_live_usage(qtbot) -> None:
+    panel = AppearancePanel(100, None)
+    qtbot.addWidget(panel)
+
+    assert panel.preview_label.text() == "重要文字"
+    assert "%" not in panel.preview_label.text()
+    assert panel.preview_bar.value() == 100
+    assert panel.preview_note.text() == "僅供外觀預覽，不代表剩餘用量。"
 
 
 def test_close_without_tray_requests_exit(qtbot, tmp_path) -> None:

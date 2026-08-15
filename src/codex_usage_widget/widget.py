@@ -55,6 +55,12 @@ def format_duration(minutes: int | None) -> str:
     return f"{minutes} 分鐘"
 
 
+def format_quota_window(minutes: int | None) -> str:
+    if minutes is None:
+        return "額度時間窗未知"
+    return f"{format_duration(minutes)}額度"
+
+
 def format_countdown(timestamp: int | None, *, now: int | None = None) -> str:
     if timestamp is None:
         return "重設時間未知"
@@ -216,9 +222,9 @@ class AppearancePanel(QFrame):
         preview_layout.setContentsMargins(10, 8, 10, 8)
         preview_layout.setSpacing(5)
         preview_heading = QHBoxLayout()
-        preview_caption = QLabel("即時預覽")
+        preview_caption = QLabel("顏色效果預覽")
         preview_caption.setObjectName("Metadata")
-        self.preview_label = QLabel("72% 剩餘")
+        self.preview_label = QLabel("重要文字")
         self.preview_label.setProperty("important", True)
         preview_heading.addWidget(preview_caption)
         preview_heading.addStretch(1)
@@ -226,11 +232,15 @@ class AppearancePanel(QFrame):
         preview_layout.addLayout(preview_heading)
         self.preview_bar = QProgressBar()
         self.preview_bar.setRange(0, 100)
-        self.preview_bar.setValue(72)
+        self.preview_bar.setValue(100)
         self.preview_bar.setTextVisible(False)
         self.preview_bar.setProperty("important", True)
-        self.preview_bar.setAccessibleName("重點顏色預覽")
+        self.preview_bar.setAccessibleName("重點顏色示意色條")
         preview_layout.addWidget(self.preview_bar)
+        self.preview_note = QLabel("僅供外觀預覽，不代表剩餘用量。")
+        self.preview_note.setObjectName("Metadata")
+        self.preview_note.setWordWrap(True)
+        preview_layout.addWidget(self.preview_note)
         layout.addWidget(preview)
 
         buttons = QHBoxLayout()
@@ -335,9 +345,11 @@ class UsageRow(QFrame):
         self.title_label = title
         title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         title.setWordWrap(True)
-        kind = "主要" if window.window_kind == "primary" else "次要"
-        duration = QLabel(f"{kind} · {format_duration(window.window_duration_mins)}")
+        duration_text = format_quota_window(window.window_duration_mins)
+        duration = QLabel(duration_text)
         duration.setObjectName("WindowChip")
+        duration.setToolTip(f"Codex 回傳的 {window.window_kind} 時間窗")
+        self.duration_label = duration
         heading.addWidget(title)
         heading.addWidget(duration, 0, Qt.AlignmentFlag.AlignRight)
         layout.addLayout(heading)
@@ -370,7 +382,7 @@ class UsageRow(QFrame):
         progress.setProperty("severity", severity)
         progress.setProperty("important", True)
         self.progress_bar = progress
-        progress.setAccessibleName(f"{window.label} 剩餘用量")
+        progress.setAccessibleName(f"{window.label} {duration_text}剩餘用量")
         progress.setAccessibleDescription(f"剩餘 {window.remaining_percent}%，狀態{severity_label}")
         layout.addWidget(progress)
 
