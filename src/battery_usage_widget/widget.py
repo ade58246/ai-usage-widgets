@@ -171,7 +171,7 @@ class FloatingBatteryWidget(QWidget):
         shadow = QGraphicsDropShadowEffect(self.card)
         shadow.setBlurRadius(24)
         shadow.setOffset(0, 5)
-        shadow.setColor(QColor(0, 0, 0, 72))
+        shadow.setColor(QColor(105, 76, 38, 58))
         self.card.setGraphicsEffect(shadow)
         outer.addWidget(self.card)
 

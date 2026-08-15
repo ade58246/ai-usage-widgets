@@ -53,16 +53,23 @@ def test_battery_formatters_and_presentation() -> None:
     assert presentation_for(make_snapshot(percent=10)) == ("critical", "⚠ 電量緊迫")
 
 
-def test_battery_theme_uses_orange_for_normal_displays() -> None:
+def test_battery_theme_uses_lively_soft_orange_palette() -> None:
     light_stylesheet = build_stylesheet(False)
     dark_stylesheet = build_stylesheet(True)
 
-    assert LIGHT_TOKENS.normal == "#A74400"
-    assert LIGHT_TOKENS.surface_alt == "#FFF1DE"
-    assert DARK_TOKENS.normal == "#FFB15C"
-    assert DARK_TOKENS.surface_alt == "#3B2C20"
-    assert "#147A4B" not in light_stylesheet
-    assert "#5FD49A" not in dark_stylesheet
+    assert LIGHT_TOKENS.battery_surface == "#FFF1D6"
+    assert LIGHT_TOKENS.normal_fill_start == "#F6C85F"
+    assert LIGHT_TOKENS.normal_fill_end == "#F0A35B"
+    assert LIGHT_TOKENS.details_surface == "#EEF8F2"
+    assert LIGHT_TOKENS.controls_surface == "#F5EEFC"
+    assert LIGHT_TOKENS.decorative_tertiary == "#316B59"
+    assert LIGHT_TOKENS.decorative_quaternary == "#67569A"
+    assert DARK_TOKENS.battery_surface == "#3A3023"
+    assert DARK_TOKENS.normal_fill_start == "#E8B84F"
+    assert "qlineargradient" in light_stylesheet
+    assert "qlineargradient" in dark_stylesheet
+    assert "#A74400" not in light_stylesheet
+    assert "#FFB15C" not in dark_stylesheet
 
 
 def test_widget_is_topmost_and_renders_real_battery_fields(qtbot, tmp_path) -> None:

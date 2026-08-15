@@ -10,37 +10,61 @@ from PySide6.QtGui import QColor, QGuiApplication
 class ThemeTokens:
     surface: str
     surface_alt: str
+    battery_surface: str
+    details_surface: str
+    controls_surface: str
     on_surface: str
     on_surface_muted: str
     outline: str
     charging: str
     normal: str
+    normal_fill_start: str
+    normal_fill_end: str
+    decorative_secondary: str
+    decorative_tertiary: str
+    decorative_quaternary: str
     warning: str
     critical: str
     focus: str
 
 
 LIGHT_TOKENS = ThemeTokens(
-    surface="#FFFBF6",
-    surface_alt="#FFF1DE",
-    on_surface="#2B1D12",
-    on_surface_muted="#6F5743",
-    outline="#E7C5A0",
-    charging="#0B6FCC",
-    normal="#A74400",
-    warning="#806000",
-    critical="#B42318",
-    focus="#0067C0",
+    surface="#FFFCF5",
+    surface_alt="#FFF7E8",
+    battery_surface="#FFF1D6",
+    details_surface="#EEF8F2",
+    controls_surface="#F5EEFC",
+    on_surface="#2D241B",
+    on_surface_muted="#665747",
+    outline="#E4CDA6",
+    charging="#236BAA",
+    normal="#7D4A0C",
+    normal_fill_start="#F6C85F",
+    normal_fill_end="#F0A35B",
+    decorative_secondary="#A94638",
+    decorative_tertiary="#316B59",
+    decorative_quaternary="#67569A",
+    warning="#795600",
+    critical="#A8322A",
+    focus="#245F9E",
 )
 
 DARK_TOKENS = ThemeTokens(
-    surface="#2B2119",
-    surface_alt="#3B2C20",
-    on_surface="#FFF7EF",
-    on_surface_muted="#D7C0AA",
-    outline="#72553E",
-    charging="#70B7FF",
-    normal="#FFB15C",
+    surface="#28241F",
+    surface_alt="#373128",
+    battery_surface="#3A3023",
+    details_surface="#2C3731",
+    controls_surface="#342F3B",
+    on_surface="#FFF9EF",
+    on_surface_muted="#D8CBB8",
+    outline="#6E604C",
+    charging="#7BBFFF",
+    normal="#FFD48A",
+    normal_fill_start="#E8B84F",
+    normal_fill_end="#E99B55",
+    decorative_secondary="#FF9D86",
+    decorative_tertiary="#8BD5BC",
+    decorative_quaternary="#C8BAF6",
     warning="#F2C14E",
     critical="#FF8B84",
     focus="#7AB8FF",
@@ -58,7 +82,12 @@ def _with_alpha(color: str, alpha: int) -> str:
 
 def build_stylesheet(dark: bool) -> str:
     token = DARK_TOKENS if dark else LIGHT_TOKENS
-    normal_soft = _with_alpha(token.normal, 32)
+    normal_soft = _with_alpha(token.normal_fill_start, 54)
+    secondary_soft = _with_alpha(token.decorative_secondary, 26)
+    tertiary_soft = _with_alpha(token.decorative_tertiary, 24)
+    quaternary_soft = _with_alpha(token.decorative_quaternary, 26)
+    tertiary_border = _with_alpha(token.decorative_tertiary, 92)
+    quaternary_border = _with_alpha(token.decorative_quaternary, 86)
     charging_soft = _with_alpha(token.charging, 32)
     warning_soft = _with_alpha(token.warning, 30)
     critical_soft = _with_alpha(token.critical, 30)
@@ -69,14 +98,23 @@ def build_stylesheet(dark: bool) -> str:
             font-size: 12pt;
         }}
         QFrame#Card {{
-            background: {token.surface};
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 1,
+                stop: 0 {token.surface}, stop: 0.72 {token.surface},
+                stop: 1 {token.surface_alt}
+            );
             border: 1px solid {token.outline};
             border-radius: 18px;
         }}
         QFrame#Header {{ background: transparent; border: none; }}
         QLabel#BrandMark {{
             color: {token.surface};
-            background: {token.normal};
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 1,
+                stop: 0 {token.decorative_secondary},
+                stop: 0.52 {token.normal_fill_end},
+                stop: 1 {token.normal_fill_start}
+            );
             border: none;
             border-radius: 11px;
             font-size: 17pt;
@@ -90,7 +128,7 @@ def build_stylesheet(dark: bool) -> str:
         QLabel#StatusLabel {{
             color: {token.normal};
             background: {normal_soft};
-            border: 1px solid {token.normal};
+            border: 1px solid {token.normal_fill_end};
             border-radius: 9px;
             padding: 3px 9px;
             font-size: 9pt;
@@ -103,9 +141,34 @@ def build_stylesheet(dark: bool) -> str:
             border-radius: 10px;
             padding: 9px;
         }}
-        QFrame#BatteryCard, QFrame#DetailsCard, QFrame#TransparencyCard {{
-            background: {token.surface_alt};
-            border: 1px solid {token.outline};
+        QFrame#BatteryCard {{
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 1,
+                stop: 0 {token.battery_surface},
+                stop: 0.72 {token.surface_alt},
+                stop: 1 {secondary_soft}
+            );
+            border: 1px solid {token.normal_fill_end};
+            border-radius: 13px;
+        }}
+        QFrame#DetailsCard {{
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 1,
+                stop: 0 {token.details_surface},
+                stop: 0.78 {token.surface_alt},
+                stop: 1 {tertiary_soft}
+            );
+            border: 1px solid {tertiary_border};
+            border-radius: 13px;
+        }}
+        QFrame#TransparencyCard {{
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 1,
+                stop: 0 {token.controls_surface},
+                stop: 0.72 {token.surface_alt},
+                stop: 1 {quaternary_soft}
+            );
+            border: 1px solid {quaternary_border};
             border-radius: 13px;
         }}
         QLabel#BatteryPercent {{ font-size: 28pt; font-weight: 700; }}
@@ -124,7 +187,7 @@ def build_stylesheet(dark: bool) -> str:
         QLabel#StateBadge[state="normal"] {{
             color: {token.normal};
             background: {normal_soft};
-            border-color: {token.normal};
+            border-color: {token.normal_fill_end};
         }}
         QLabel#StateBadge[state="warning"] {{
             color: {token.warning};
@@ -139,15 +202,22 @@ def build_stylesheet(dark: bool) -> str:
         QLabel#StateBadge[state="neutral"] {{ color: {token.on_surface_muted}; }}
         QLabel#Summary {{ color: {token.on_surface_muted}; font-size: 11pt; }}
         QLabel#DetailLabel {{ color: {token.on_surface_muted}; font-size: 10pt; }}
-        QLabel#DetailValue {{ font-size: 10pt; font-weight: 600; }}
+        QLabel#DetailValue {{
+            color: {token.decorative_tertiary};
+            font-size: 10pt;
+            font-weight: 600;
+        }}
         QLabel#TransparencyLabel {{
-            color: {token.on_surface_muted};
+            color: {token.decorative_quaternary};
             font-size: 10pt;
         }}
         QLabel#TransparencyValue {{
             color: {token.normal};
-            background: {normal_soft};
-            border: 1px solid {token.normal};
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 0,
+                stop: 0 {normal_soft}, stop: 1 {secondary_soft}
+            );
+            border: 1px solid {token.normal_fill_end};
             border-radius: 8px;
             padding: 3px 6px;
             font-size: 9pt;
@@ -160,7 +230,12 @@ def build_stylesheet(dark: bool) -> str:
         }}
         QSlider::sub-page:horizontal {{
             border-radius: 4px;
-            background: {token.normal};
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 0,
+                stop: 0 {token.normal_fill_start},
+                stop: 0.62 {token.normal_fill_end},
+                stop: 1 {token.decorative_secondary}
+            );
         }}
         QSlider::add-page:horizontal {{
             border-radius: 4px;
@@ -171,7 +246,7 @@ def build_stylesheet(dark: bool) -> str:
             margin: -7px 0;
             border: 3px solid {token.surface_alt};
             border-radius: 11px;
-            background: {token.normal};
+            background: {token.decorative_quaternary};
         }}
         QSlider:focus {{
             border: 2px solid {token.focus};
@@ -186,7 +261,12 @@ def build_stylesheet(dark: bool) -> str:
         }}
         QProgressBar#BatteryProgress::chunk {{
             border-radius: 7px;
-            background: {token.normal};
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 0,
+                stop: 0 {token.normal_fill_start},
+                stop: 0.55 {token.normal_fill_end},
+                stop: 1 {token.decorative_secondary}
+            );
         }}
         QProgressBar#BatteryProgress[state="charging"]::chunk {{
             background: {token.charging};
@@ -205,7 +285,10 @@ def build_stylesheet(dark: bool) -> str:
             background: {token.surface_alt};
             color: {token.on_surface};
         }}
-        QPushButton:hover, QToolButton:hover {{ border-color: {token.charging}; }}
+        QPushButton:hover, QToolButton:hover {{
+            background: {quaternary_soft};
+            border-color: {token.decorative_quaternary};
+        }}
         QPushButton:focus, QToolButton:focus {{ border: 2px solid {token.focus}; }}
         QToolButton#HeaderButton {{
             min-width: 36px;
