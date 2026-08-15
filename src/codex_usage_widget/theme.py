@@ -229,10 +229,17 @@ def build_stylesheet(dark: bool, important_text_override: str | None = None) -> 
             border: 1px solid {outline_soft};
             border-radius: 13px;
         }}
+        QFrame#UsageRow[available="false"] {{
+            background: {surface_deep};
+            border-style: dashed;
+        }}
         QFrame#UsageAccent {{
             background: {token.important_text};
             border: none;
             border-radius: 2px;
+        }}
+        QFrame#UsageAccent[available="false"] {{
+            background: {outline_soft};
         }}
         QFrame#MetadataCard {{
             background: {surface_deep};
@@ -245,6 +252,11 @@ def build_stylesheet(dark: bool, important_text_override: str | None = None) -> 
         }}
         QLabel#UsagePercent {{
             font-weight: 650;
+        }}
+        QLabel#UsageUnavailable {{
+            color: {token.on_surface_muted};
+            font-size: 15pt;
+            font-weight: 600;
         }}
         QLabel#WindowChip {{
             color: {token.on_surface_muted};
@@ -394,6 +406,11 @@ def build_stylesheet(dark: bool, important_text_override: str | None = None) -> 
             background: {critical_soft};
             border-color: {token.critical};
             font-weight: 600;
+        }}
+        QLabel#StatusBadge[severity="unavailable"] {{
+            color: {token.on_surface_muted};
+            background: {surface_deep};
+            border-color: {outline_soft};
         }}
         QLabel[important="true"] {{
             color: {token.important_text};

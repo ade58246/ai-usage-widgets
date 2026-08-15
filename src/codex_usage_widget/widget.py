@@ -41,6 +41,7 @@ from codex_usage_widget.theme import build_stylesheet, is_dark_theme
 
 MIN_OPACITY_PERCENT = 35
 MAX_OPACITY_PERCENT = 100
+CODEX_QUOTA_WINDOWS_MINS = (300, 10_080)
 
 
 def format_duration(minutes: int | None) -> str:
@@ -321,6 +322,7 @@ class UsageRow(QFrame):
     def __init__(self, window: RateLimitWindowView, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("UsageRow")
+        self.setProperty("available", True)
         self.window_data = window
 
         outer_layout = QHBoxLayout(self)
@@ -328,6 +330,7 @@ class UsageRow(QFrame):
         outer_layout.setSpacing(0)
         accent = QFrame()
         accent.setObjectName("UsageAccent")
+        accent.setProperty("available", True)
         accent.setFixedWidth(5)
         accent.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         outer_layout.addWidget(accent)
@@ -399,6 +402,67 @@ class UsageRow(QFrame):
         self.reset_label.setToolTip(format_absolute_time(timestamp))
 
 
+class UnavailableUsageRow(QFrame):
+    """Keep an expected quota window visible without inventing a percentage."""
+
+    def __init__(
+        self,
+        label: str,
+        window_duration_mins: int,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("UsageRow")
+        self.setProperty("available", False)
+        self.window_duration_mins = window_duration_mins
+
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        accent = QFrame()
+        accent.setObjectName("UsageAccent")
+        accent.setProperty("available", False)
+        accent.setFixedWidth(5)
+        accent.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        outer_layout.addWidget(accent)
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(14, 11, 14, 11)
+        layout.setSpacing(7)
+        outer_layout.addWidget(body, 1)
+
+        heading = QHBoxLayout()
+        self.title_label = QLabel(label)
+        self.title_label.setObjectName("UsageTitle")
+        self.title_label.setWordWrap(True)
+        self.duration_label = QLabel(format_quota_window(window_duration_mins))
+        self.duration_label.setObjectName("WindowChip")
+        heading.addWidget(self.title_label, 1)
+        heading.addWidget(self.duration_label, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(heading)
+
+        value_row = QHBoxLayout()
+        self.value_label = QLabel("— 等待資料")
+        self.value_label.setObjectName("UsageUnavailable")
+        self.status_badge = QLabel("○ 尚未提供")
+        self.status_badge.setObjectName("StatusBadge")
+        self.status_badge.setProperty("severity", "unavailable")
+        value_row.addWidget(self.value_label)
+        value_row.addStretch(1)
+        value_row.addWidget(self.status_badge)
+        layout.addLayout(value_row)
+
+        self.detail_label = QLabel("本次 app-server 回應未包含此時間窗，更新後會自動顯示。")
+        self.detail_label.setObjectName("Metadata")
+        self.detail_label.setWordWrap(True)
+        layout.addWidget(self.detail_label)
+
+        duration_text = format_quota_window(window_duration_mins)
+        self.setAccessibleName(f"{label} {duration_text}")
+        self.setAccessibleDescription("Codex app-server 尚未提供這個額度時間窗的資料")
+
+
 class FloatingUsageWidget(QWidget):
     refresh_requested = Signal()
     login_requested = Signal()
@@ -417,6 +481,7 @@ class FloatingUsageWidget(QWidget):
         self.autostart = autostart
         self._snapshot: UsageSnapshot | None = None
         self._usage_rows: list[UsageRow] = []
+        self._unavailable_rows: list[UnavailableUsageRow] = []
         self._quitting = False
         self._position_initialized = False
         self._opacity_percent = self._load_opacity_setting()
@@ -690,17 +755,43 @@ class FloatingUsageWidget(QWidget):
         self.error_banner.hide()
         self._clear_layout(self.content_layout)
         self._usage_rows.clear()
+        self._unavailable_rows.clear()
 
-        if snapshot.windows:
-            for window in snapshot.windows:
-                row = UsageRow(window)
+        windows = list(snapshot.windows)
+        codex_label = next(
+            (window.label for window in windows if window.limit_id.casefold() == "codex"),
+            "Codex",
+        )
+        standard_windows: dict[int, tuple[int, RateLimitWindowView]] = {}
+        for index, window in enumerate(windows):
+            duration = window.window_duration_mins
+            if (
+                window.limit_id.casefold() == "codex"
+                and duration in CODEX_QUOTA_WINDOWS_MINS
+                and duration not in standard_windows
+            ):
+                standard_windows[duration] = (index, window)
+
+        rendered_indexes: set[int] = set()
+        for duration in CODEX_QUOTA_WINDOWS_MINS:
+            matched = standard_windows.get(duration)
+            if matched is None:
+                row = UnavailableUsageRow(codex_label, duration)
                 self.content_layout.addWidget(row)
-                self._usage_rows.append(row)
-        else:
-            empty = QLabel("伺服器沒有回傳可顯示的用量時間窗。")
-            empty.setObjectName("Muted")
-            empty.setWordWrap(True)
-            self.content_layout.addWidget(empty)
+                self._unavailable_rows.append(row)
+                continue
+            index, window = matched
+            rendered_indexes.add(index)
+            row = UsageRow(window)
+            self.content_layout.addWidget(row)
+            self._usage_rows.append(row)
+
+        for index, window in enumerate(windows):
+            if index in rendered_indexes:
+                continue
+            row = UsageRow(window)
+            self.content_layout.addWidget(row)
+            self._usage_rows.append(row)
 
         metadata = self._metadata_lines(snapshot)
         if metadata:

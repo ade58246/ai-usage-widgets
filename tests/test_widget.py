@@ -64,6 +64,63 @@ def test_widget_is_topmost_and_renders_snapshot(qtbot, tmp_path) -> None:
     assert widget._usage_rows[0].reset_label.property("important") is True
     assert widget._usage_rows[0].progress_bar.property("important") is True
     assert widget._usage_rows[0].duration_label.text() == "5 小時額度"
+    assert len(widget._unavailable_rows) == 1
+    assert widget._unavailable_rows[0].duration_label.text() == "7 天額度"
+    assert widget._unavailable_rows[0].value_label.text() == "— 等待資料"
+
+
+def test_five_hour_and_seven_day_quotas_are_always_shown_together(qtbot, tmp_path) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    autostart = AutostartManager(FakeRegistry(), executable="widget.exe", frozen=False)
+    widget = FloatingUsageWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.show()
+
+    only_seven_day = UsageSnapshot(
+        windows=(
+            RateLimitWindowView(
+                limit_id="codex",
+                label="Codex",
+                window_kind="primary",
+                used_percent=8,
+                remaining_percent=92,
+                window_duration_mins=10_080,
+                resets_at=2_000_000_000,
+            ),
+        )
+    )
+    widget.set_snapshot(only_seven_day)
+
+    assert [row.duration_label.text() for row in widget._unavailable_rows] == ["5 小時額度"]
+    assert [row.duration_label.text() for row in widget._usage_rows] == ["7 天額度"]
+    assert widget.content_layout.itemAt(0).widget() is widget._unavailable_rows[0]
+    assert widget.content_layout.itemAt(1).widget() is widget._usage_rows[0]
+
+    both_windows = UsageSnapshot(
+        windows=(
+            only_seven_day.windows[0],
+            RateLimitWindowView(
+                limit_id="codex",
+                label="Codex",
+                window_kind="secondary",
+                used_percent=28,
+                remaining_percent=72,
+                window_duration_mins=300,
+                resets_at=2_000_000_000,
+            ),
+        )
+    )
+    widget.set_snapshot(both_windows)
+
+    assert widget._unavailable_rows == []
+    assert [row.duration_label.text() for row in widget._usage_rows] == [
+        "5 小時額度",
+        "7 天額度",
+    ]
+    assert [row.percent_label.text() for row in widget._usage_rows] == [
+        "72% 剩餘",
+        "92% 剩餘",
+    ]
 
 
 def test_appearance_preview_cannot_be_mistaken_for_live_usage(qtbot) -> None:
