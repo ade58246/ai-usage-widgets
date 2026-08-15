@@ -12,6 +12,8 @@ jobs:
   test-and-build:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
 
     steps:
       - name: Checkout repository
