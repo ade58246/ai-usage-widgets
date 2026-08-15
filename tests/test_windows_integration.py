@@ -57,3 +57,6 @@ def test_second_instance_notifies_primary(qtbot) -> None:
     qtbot.waitUntil(lambda: bool(activations), timeout=2_000)
     first.close()
     second.close()
+    first.deleteLater()
+    second.deleteLater()
+    qtbot.wait(10)
