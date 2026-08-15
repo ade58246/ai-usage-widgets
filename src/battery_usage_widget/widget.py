@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QSizePolicy,
+    QSlider,
     QSystemTrayIcon,
     QToolButton,
     QVBoxLayout,
@@ -30,6 +31,9 @@ from battery_usage_widget.autostart import AutostartManager
 from battery_usage_widget.icon_factory import create_battery_icon
 from battery_usage_widget.models import BatterySnapshot, BatteryState
 from battery_usage_widget.theme import build_stylesheet, is_dark_theme
+
+MIN_OPACITY_PERCENT = 35
+MAX_OPACITY_PERCENT = 100
 
 
 def format_time(seconds: int | None) -> str:
@@ -145,6 +149,7 @@ class FloatingBatteryWidget(QWidget):
         self._snapshot: BatterySnapshot | None = None
         self._quitting = False
         self._position_initialized = False
+        self._opacity_percent = self._load_opacity_setting()
 
         self.setObjectName("FloatingBatteryWidget")
         self.setWindowTitle("電池用量與充電狀態")
@@ -269,6 +274,40 @@ class FloatingBatteryWidget(QWidget):
         self.saver_value = self._add_detail(details_layout, 4, "省電模式")
         self.card_layout.addWidget(details_card)
 
+        transparency_card = QFrame()
+        transparency_card.setObjectName("TransparencyCard")
+        transparency_layout = QHBoxLayout(transparency_card)
+        transparency_layout.setContentsMargins(14, 9, 12, 9)
+        transparency_layout.setSpacing(10)
+        transparency_label = QLabel("介面透明度")
+        transparency_label.setObjectName("TransparencyLabel")
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
+        self.opacity_slider.setValue(self._opacity_percent)
+        self.opacity_slider.setSingleStep(5)
+        self.opacity_slider.setPageStep(10)
+        self.opacity_slider.setTracking(True)
+        self.opacity_slider.setMinimumWidth(125)
+        self.opacity_slider.setMinimumHeight(30)
+        self.opacity_slider.setToolTip("35% 較透明；100% 完全不透明")
+        self.opacity_slider.setAccessibleName("電池狀態介面透明度")
+        self.opacity_slider.setAccessibleDescription(
+            f"可調整為 {MIN_OPACITY_PERCENT}% 到 {MAX_OPACITY_PERCENT}%"
+        )
+        transparency_label.setBuddy(self.opacity_slider)
+        self.opacity_value_label = QLabel(f"{self._opacity_percent}%")
+        self.opacity_value_label.setObjectName("TransparencyValue")
+        self.opacity_value_label.setMinimumWidth(46)
+        self.opacity_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.opacity_value_label.setAccessibleName("目前介面透明度")
+        transparency_layout.addWidget(transparency_label)
+        transparency_layout.addWidget(self.opacity_slider, 1)
+        transparency_layout.addWidget(self.opacity_value_label)
+        self.card_layout.addWidget(transparency_card)
+        self.opacity_slider.valueChanged.connect(
+            lambda value: self._set_opacity_percent(value, persist=True)
+        )
+
         self.updated_label = QLabel("尚未取得資料")
         self.updated_label.setObjectName("Metadata")
         self.updated_label.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -279,12 +318,18 @@ class FloatingBatteryWidget(QWidget):
         self._save_position_timer.setInterval(250)
         self._save_position_timer.timeout.connect(self._save_geometry)
 
+        self._opacity_sync_timer = QTimer(self)
+        self._opacity_sync_timer.setSingleShot(True)
+        self._opacity_sync_timer.setInterval(300)
+        self._opacity_sync_timer.timeout.connect(self.settings.sync)
+
         self.tray_icon: QSystemTrayIcon | None = None
         self.autostart_action: QAction | None = None
         if enable_tray and QSystemTrayIcon.isSystemTrayAvailable():
             self._create_tray()
 
         self._apply_theme()
+        self._set_opacity_percent(self._opacity_percent, persist=False)
         QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _scheme: self._apply_theme())
 
     @staticmethod
@@ -312,6 +357,9 @@ class FloatingBatteryWidget(QWidget):
     def prepare_quit(self) -> None:
         self._quitting = True
         self._save_geometry()
+        if self._opacity_sync_timer.isActive():
+            self._opacity_sync_timer.stop()
+            self.settings.sync()
         if self.tray_icon:
             self.tray_icon.hide()
 
@@ -402,6 +450,7 @@ class FloatingBatteryWidget(QWidget):
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
+        self.setWindowOpacity(self._opacity_percent / 100)
         if not self._position_initialized:
             self._restore_or_position()
             self._position_initialized = True
@@ -461,6 +510,31 @@ class FloatingBatteryWidget(QWidget):
                 self.autostart_action.setChecked(not enabled)
                 self.autostart_action.blockSignals(False)
             self.set_error(f"無法變更自動啟動設定：{exc}")
+
+    def _load_opacity_setting(self) -> int:
+        value = self.settings.value("appearance/opacity_percent", MAX_OPACITY_PERCENT)
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = MAX_OPACITY_PERCENT
+        return max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, parsed))
+
+    def _set_opacity_percent(self, opacity_percent: int, *, persist: bool) -> None:
+        next_opacity = max(
+            MIN_OPACITY_PERCENT,
+            min(MAX_OPACITY_PERCENT, int(opacity_percent)),
+        )
+        self._opacity_percent = next_opacity
+        if self.opacity_slider.value() != next_opacity:
+            self.opacity_slider.blockSignals(True)
+            self.opacity_slider.setValue(next_opacity)
+            self.opacity_slider.blockSignals(False)
+        self.opacity_value_label.setText(f"{next_opacity}%")
+        self.opacity_value_label.setAccessibleDescription(f"目前為 {next_opacity}%")
+        self.setWindowOpacity(next_opacity / 100)
+        if persist:
+            self.settings.setValue("appearance/opacity_percent", next_opacity)
+            self._opacity_sync_timer.start()
 
     def _update_tray_tooltip(self) -> None:
         if not self.tray_icon or self._snapshot is None:

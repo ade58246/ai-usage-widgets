@@ -27,7 +27,8 @@
 - app-server 事件更新加上每 60 秒完整校正。
 - 系統匣、單一執行個體與打包版 Windows 自動啟動。
 - 淺色／深色、高 DPI、鍵盤操作及明確的正常／注意／緊迫文字狀態。
-- 電池小工具每 5 秒讀取本機狀態；不連網、不保存歷史資料，也不需要額外驅動程式。
+- 電池小工具每 5 秒讀取本機狀態；主介面可即時調整並記住 35–100% 透明度，不連網、不保存
+  歷史資料，也不需要額外驅動程式。
 
 協定細節請參考 [OpenAI 官方 Codex App Server 文件](https://developers.openai.com/codex/app-server)
 及 [Anthropic 官方 status line 文件](https://code.claude.com/docs/en/statusline)。
@@ -105,6 +106,7 @@ GitHub Actions 會在 Windows runner 執行格式檢查、靜態檢查、完整�
 - Claude Code 在執行期間會依官方 status line 的 `refreshInterval` 每 60 秒更新本機快取；
   Claude Code 關閉後，小工具會保留最後資料並標示等待下一次更新。
 - 電池小工具預設位於左下角，避免遮住預設在右側的 Codex／Claude 卡片；拖曳後會記住位置。
+- 電池卡片內的「介面透明度」滑桿可直接調整整張卡片；最低限制為 35%，避免介面淡到難以找回。
 - 電池的預估時間與即時功率取決於電池韌體及 Windows 驅動，沒有可靠數值時會顯示「未知」或
   「Windows 尚未提供」，不會使用無效哨兵值推算。
 - `×` 將卡片隱藏到系統匣，而不會停止更新。

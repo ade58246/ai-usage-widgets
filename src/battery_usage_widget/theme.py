@@ -103,7 +103,7 @@ def build_stylesheet(dark: bool) -> str:
             border-radius: 10px;
             padding: 9px;
         }}
-        QFrame#BatteryCard, QFrame#DetailsCard {{
+        QFrame#BatteryCard, QFrame#DetailsCard, QFrame#TransparencyCard {{
             background: {token.surface_alt};
             border: 1px solid {token.outline};
             border-radius: 13px;
@@ -140,6 +140,43 @@ def build_stylesheet(dark: bool) -> str:
         QLabel#Summary {{ color: {token.on_surface_muted}; font-size: 11pt; }}
         QLabel#DetailLabel {{ color: {token.on_surface_muted}; font-size: 10pt; }}
         QLabel#DetailValue {{ font-size: 10pt; font-weight: 600; }}
+        QLabel#TransparencyLabel {{
+            color: {token.on_surface_muted};
+            font-size: 10pt;
+        }}
+        QLabel#TransparencyValue {{
+            color: {token.normal};
+            background: {normal_soft};
+            border: 1px solid {token.normal};
+            border-radius: 8px;
+            padding: 3px 6px;
+            font-size: 9pt;
+            font-weight: 600;
+        }}
+        QSlider::groove:horizontal {{
+            height: 8px;
+            border-radius: 4px;
+            background: {token.outline};
+        }}
+        QSlider::sub-page:horizontal {{
+            border-radius: 4px;
+            background: {token.normal};
+        }}
+        QSlider::add-page:horizontal {{
+            border-radius: 4px;
+            background: {token.outline};
+        }}
+        QSlider::handle:horizontal {{
+            width: 22px;
+            margin: -7px 0;
+            border: 3px solid {token.surface_alt};
+            border-radius: 11px;
+            background: {token.normal};
+        }}
+        QSlider:focus {{
+            border: 2px solid {token.focus};
+            border-radius: 6px;
+        }}
         QProgressBar#BatteryProgress {{
             min-height: 14px;
             max-height: 14px;

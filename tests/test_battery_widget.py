@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import QSettings, Qt
+import pytest
+from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtWidgets import QStyle, QStyleOptionSlider
 
 from battery_usage_widget.autostart import VALUE_NAME, AutostartManager
 from battery_usage_widget.models import BatterySnapshot, BatteryState
 from battery_usage_widget.widget import (
+    MAX_OPACITY_PERCENT,
+    MIN_OPACITY_PERCENT,
     FloatingBatteryWidget,
     format_capacity,
     format_power,
@@ -99,6 +103,70 @@ def test_widget_distinguishes_charging_and_no_battery(qtbot, tmp_path) -> None:
     assert widget.percent_label.text() == "--%"
     assert widget.state_badge.text() == "○ 未偵測到電池"
     assert "沒有偵測到" in widget.summary_label.text()
+
+
+def test_inline_opacity_control_updates_and_persists(qtbot, tmp_path) -> None:
+    settings_path = tmp_path / "settings.ini"
+    settings = QSettings(str(settings_path), QSettings.Format.IniFormat)
+    settings.setValue("appearance/opacity_percent", 70)
+    autostart = AutostartManager(FakeRegistry(), executable="battery.exe", frozen=False)
+    widget = FloatingBatteryWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.show()
+
+    assert widget.opacity_slider.isVisible()
+    assert widget.opacity_slider.minimum() == MIN_OPACITY_PERCENT
+    assert widget.opacity_slider.maximum() == MAX_OPACITY_PERCENT
+    assert widget.opacity_slider.value() == 70
+    assert widget.opacity_value_label.text() == "70%"
+    assert widget.windowOpacity() == pytest.approx(0.7, abs=1 / 255)
+    assert widget.opacity_slider.accessibleName() == "電池狀態介面透明度"
+
+    widget.opacity_slider.setValue(55)
+    assert widget.opacity_value_label.text() == "55%"
+    assert widget.windowOpacity() == pytest.approx(0.55, abs=1 / 255)
+    assert settings.value("appearance/opacity_percent", type=int) == 55
+
+
+def test_invalid_opacity_setting_is_clamped(qtbot, tmp_path) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    settings.setValue("appearance/opacity_percent", 5)
+    autostart = AutostartManager(FakeRegistry(), executable="battery.exe", frozen=False)
+    widget = FloatingBatteryWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+
+    assert widget.opacity_slider.value() == MIN_OPACITY_PERCENT
+    assert widget.windowOpacity() == pytest.approx(MIN_OPACITY_PERCENT / 100, abs=1 / 255)
+
+
+def test_inline_opacity_slider_can_be_dragged(qtbot, tmp_path) -> None:
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    autostart = AutostartManager(FakeRegistry(), executable="battery.exe", frozen=False)
+    widget = FloatingBatteryWidget(settings, autostart, enable_tray=False)
+    qtbot.addWidget(widget)
+    widget.show()
+    qtbot.waitUntil(lambda: widget.opacity_slider.width() > 100)
+
+    slider = widget.opacity_slider
+    slider.setValue(MAX_OPACITY_PERCENT)
+    option = QStyleOptionSlider()
+    slider.initStyleOption(option)
+    handle = slider.style().subControlRect(
+        QStyle.ComplexControl.CC_Slider,
+        option,
+        QStyle.SubControl.SC_SliderHandle,
+        slider,
+    )
+    start = handle.center()
+    finish = QPoint(12, start.y())
+
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=start)
+    qtbot.mouseMove(slider, pos=finish, delay=20)
+    qtbot.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=finish)
+
+    assert slider.value() <= 45
+    assert widget.windowOpacity() == pytest.approx(slider.value() / 100, abs=1 / 255)
+    assert settings.value("appearance/opacity_percent", type=int) == slider.value()
 
 
 def test_close_without_tray_requests_exit(qtbot, tmp_path) -> None:
